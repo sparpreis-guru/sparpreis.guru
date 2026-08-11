@@ -80,4 +80,4 @@ Prometheus-Metriken stehen unter `/api/metrics` bereit. In Produktion müssen da
 
 ## Credits
 
-Basiert auf [bahn.vibe](https://github.com/jschae23/bahn.vibe), ursprünglich inspiriert von einer PHP-Version von hackgrid. Der Klassikmodus greift die Darstellung von [bahn.guru](https://github.com/juliuste/bahn.guru) auf.
+Basiert auf [bahn.vibe](https://gitlab.com/jschae23/bahn.vibe), ursprünglich inspiriert von einer PHP-Version von hackgrid. Der Klassikmodus greift die Darstellung von [bahn.guru](https://github.com/juliuste/bahn.guru) auf.
