@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.3.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.0...v2.3.1) (2026-08-12)
+
+
+### Bug Fixes
+
+* compact queue details in search progress ([c0c912a](https://github.com/sparpreis-guru/sparpreis.guru/commit/c0c912abe816243602e0345bd17c9f5e3233694a))
+* improve rate limiter speed ([cec0da0](https://github.com/sparpreis-guru/sparpreis.guru/commit/cec0da0fab839a3ad70389dea1edc668dc349c10))
+* keep direct connections available during refresh ([465fc09](https://github.com/sparpreis-guru/sparpreis.guru/commit/465fc091f597555f85801122ac2d3bee5792d24c))
+* stabilize search replacement and loading states ([d6843b4](https://github.com/sparpreis-guru/sparpreis.guru/commit/d6843b409e7b35182982fe277612a01375379466))
+
 ## [2.3.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.2.0...v2.3.0) (2026-08-11)
 
 
