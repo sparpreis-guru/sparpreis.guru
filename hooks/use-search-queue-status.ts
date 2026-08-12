@@ -20,8 +20,17 @@ interface UseSearchQueueStatusOptions {
 function estimateInitialSeconds(remainingRequests: number): number {
   const normalizedRequests = Math.max(1, Math.ceil(remainingRequests))
   const burstStartsAfterInitialSlots = Math.min(7, Math.max(0, normalizedRequests - 3))
-  const pacedStarts = Math.max(0, normalizedRequests - 10)
-  return Math.max(2, Math.ceil(2 + burstStartsAfterInitialSlots * 0.45 + pacedStarts * 2))
+  const pacedBurstStarts = Math.min(20, Math.max(0, normalizedRequests - 10))
+  const sustainedStarts = Math.max(0, normalizedRequests - 30)
+  return Math.max(
+    2,
+    Math.ceil(
+      2 +
+      burstStartsAfterInitialSlots * 0.45 +
+      pacedBurstStarts * 1.25 +
+      sustainedStarts * 2
+    )
+  )
 }
 
 export function useSearchQueueStatus({

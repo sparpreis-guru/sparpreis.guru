@@ -644,22 +644,11 @@ class GlobalRateLimiter {
       return this.config.baseInterval
     }
 
-    const remainingSlots = this.config.rollingLimitCount - requestsInWindow.length
-    if (remainingSlots <= 0) {
-      return this.config.maxInterval
-    }
-
-    const oldestRequest = Math.min(...requestsInWindow)
-    const elapsedWindowMs = Math.max(0, now - oldestRequest)
-    const remainingWindowMs = Math.max(
-      0,
-      this.config.rollingLimitWindow + this.config.rollingLimitSafetyBuffer - elapsedWindowMs
-    )
-
-    return Math.max(
-      this.config.minPacedInterval,
-      Math.ceil(remainingWindowMs / remainingSlots)
-    )
+    // Nach dem schnellen Anfangs-Burst die noch freien Slots zuegig nutzen.
+    // Ist das Kontingent voll, blockiert getRollingWindowDelay() exakt bis ein
+    // Start aus dem Rolling Window faellt; ein kuenstliches Verteilen der
+    // verbleibenden Slots ueber das gesamte Fenster verlaengert nur die Suche.
+    return this.config.minPacedInterval
   }
 
   private getRollingWindowPacingDelay(now: number): number {
@@ -1001,6 +990,10 @@ class GlobalRateLimiter {
       timestamp => timestamp > now - this.config.rollingLimitWindow
     ).length
     const burstCapacity = Math.max(0, this.config.pacingStartCount - requestsInWindow)
+    const pacedBurstCapacity = Math.max(
+      0,
+      this.config.rollingLimitCount - Math.max(this.config.pacingStartCount, requestsInWindow)
+    )
     const sustainedInterval = Math.ceil(
       this.config.rollingLimitWindow / this.config.rollingLimitCount
     )
@@ -1024,6 +1017,8 @@ class GlobalRateLimiter {
       currentInterval: this.minInterval,
       effectiveInterval,
       burstCapacity,
+      pacedBurstCapacity,
+      pacedBurstInterval: Math.max(this.minInterval, this.config.minPacedInterval),
       sustainedInterval,
       isRateLimited: now < this.rateLimitedUntil,
       // Neue benutzerfreundliche Werte für Round-Robin
