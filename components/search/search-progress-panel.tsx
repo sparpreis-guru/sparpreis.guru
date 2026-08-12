@@ -229,32 +229,27 @@ export function SearchProgressPanel({
             />
           </div>
 
-          {(isActive || detail) && (
-            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
-              {isActive && <span className="shrink-0 tabular-nums">Vergangen: {formatElapsedTime(elapsedSeconds)}</span>}
-              {detail && <span className="truncate">{detail}</span>}
-            </div>
-          )}
-
-          {isActive ? (
-            <SearchQueueStatus status={queueStatus} className="mt-2.5" embedded />
-          ) : (
-            <div
-              className={cn(
-                "mt-2.5 flex items-start gap-2 border-t pt-2 text-xs font-medium",
-                state === "cancelled"
-                  ? "border-amber-200 text-amber-900"
-                  : "border-green-200 text-green-900"
-              )}
-            >
-              {state === "cancelled" ? (
-                <CircleX className="h-4 w-4 shrink-0 text-amber-600" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" />
-              )}
-              <span>{state === "cancelled" ? "Suche vorzeitig beendet." : "Alle geplanten Anfragen verarbeitet."}</span>
-            </div>
-          )}
+          <div className="mt-2 flex min-h-6 min-w-0 items-center gap-3 text-xs text-gray-600">
+            {isActive ? (
+              <span className="shrink-0 tabular-nums">Vergangen: {formatElapsedTime(elapsedSeconds)}</span>
+            ) : (
+              <span
+                className={cn(
+                  "flex shrink-0 items-center gap-1.5 font-medium",
+                  state === "cancelled" ? "text-amber-900" : "text-green-900"
+                )}
+              >
+                {state === "cancelled" ? (
+                  <CircleX className="h-3.5 w-3.5 shrink-0 text-amber-600" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-green-600" />
+                )}
+                <span>{state === "cancelled" ? "Suche vorzeitig beendet." : "Alle geplanten Anfragen verarbeitet."}</span>
+              </span>
+            )}
+            {isActive && <SearchQueueStatus status={queueStatus} inline />}
+            {!isActive && detail && <span className="min-w-0 flex-1 truncate">{detail}</span>}
+          </div>
         </div>
       </section>
 
