@@ -2,6 +2,8 @@ export interface SearchEtaQueueSnapshot {
   effectiveInterval: number
   sustainedInterval: number
   burstCapacity: number
+  pacedBurstCapacity: number
+  pacedBurstInterval: number
   nextRateLimitStartDelay: number
   maxConcurrentRequests: number
   averageExecutionTimeMs: number
@@ -103,6 +105,11 @@ export function estimateSearchEtaSeconds({
     positiveSeconds(queue.sustainedInterval, 2)
   )
   const fastStarts = Math.max(0, Math.floor(queue.burstCapacity))
+  const pacedBurstStarts = Math.max(0, Math.floor(queue.pacedBurstCapacity))
+  const pacedBurstIntervalSeconds = Math.max(
+    effectiveIntervalSeconds,
+    positiveSeconds(queue.pacedBurstInterval, 1.25)
+  )
   let nextRateLimitedStart = Math.max(
     0,
     positiveSeconds(queue.nextRateLimitStartDelay, 0)
@@ -124,7 +131,9 @@ export function estimateSearchEtaSeconds({
 
     const nextInterval = startIndex < Math.max(0, fastStarts - 1)
       ? effectiveIntervalSeconds
-      : sustainedIntervalSeconds
+      : startIndex < Math.max(0, fastStarts + pacedBurstStarts - 1)
+        ? pacedBurstIntervalSeconds
+        : sustainedIntervalSeconds
     nextRateLimitedStart = requestStart + nextInterval
   })
 

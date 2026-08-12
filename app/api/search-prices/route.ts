@@ -615,6 +615,10 @@ export async function POST(request: NextRequest) {
             sessionId,
           }
 
+          if (!safeEnqueue(encoder.encode(JSON.stringify({ type: "meta", meta: metaData }) + "\n"))) {
+            return
+          }
+
           // Initialer Progress-Update - zeigt sofort die Queue-Size an
           const queueStatus = globalRateLimiter.getQueueStatus()
           await updateProgress(

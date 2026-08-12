@@ -167,6 +167,17 @@ interface StationSuggestion {
 
 export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: TrainSearchFormProps) {
   const router = useRouter()
+  const [isSearching, setIsSearching] = useState(false)
+
+  useEffect(() => {
+    const handleSearchState = (event: Event) => {
+      const detail = (event as CustomEvent<{ isSearching?: boolean }>).detail
+      setIsSearching(Boolean(detail?.isSearching))
+    }
+
+    window.addEventListener("bestpreissuche:search-state", handleSearchState)
+    return () => window.removeEventListener("bestpreissuche:search-state", handleSearchState)
+  }, [])
 
   // Helper function to check if a string is a station ID (numeric)
   const isStationId = (value: string): boolean => {
@@ -693,6 +704,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     if (normalizedCurrentParams.toString() === normalizedNextParams.toString()) {
       window.dispatchEvent(new Event("bestpreissuche:restart"))
     } else {
+      window.dispatchEvent(new Event("bestpreissuche:replace"))
       router.push(`/?${params.toString()}`, { scroll: false })
     }
   }
@@ -1201,9 +1213,11 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
             className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
           >
             <Ticket className="mr-2 h-4 w-4" />
-            {rueckfahrtAktiv
-              ? "Günstigste Kombinationen suchen"
-              : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
+            {isSearching
+              ? "Neue Suche starten"
+              : rueckfahrtAktiv
+                ? "Günstigste Kombinationen suchen"
+                : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
           </Button>
         </div>
 

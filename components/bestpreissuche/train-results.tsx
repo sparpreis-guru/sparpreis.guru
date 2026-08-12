@@ -153,11 +153,13 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const [travelCombinations, setTravelCombinations] = useState<TravelCombination[]>([])
   const activeSessionIdRef = useRef<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const searchRunIdRef = useRef(0)
   const startedSearchKeyRef = useRef<string | null>(null)
   const unmountCleanupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [showAbortModal, setShowAbortModal] = useState(false)
   const [abortModalMessage, setAbortModalMessage] = useState("")
   const [searchWasCancelled, setSearchWasCancelled] = useState(false)
+  const [initialSearchComplete, setInitialSearchComplete] = useState(false)
   const [searchAttempt, setSearchAttempt] = useState(0)
   const [lazyCombinationRequest, setLazyCombinationRequest] = useState<LazyCombinationRequestState | null>(null)
   const [lazyDayRequest, setLazyDayRequest] = useState<LazyDayRequestState | null>(null)
@@ -205,6 +207,18 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   // Track der bereits eingetroffenen dayResults
   const processedDaysRef = useRef<Set<string>>(new Set())
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("bestpreissuche:search-state", {
+      detail: { isSearching: loading || isStreaming },
+    }))
+  }, [isStreaming, loading])
+
+  useEffect(() => () => {
+    window.dispatchEvent(new CustomEvent("bestpreissuche:search-state", {
+      detail: { isSearching: false },
+    }))
+  }, [])
+
   // Generate sessionId when search starts
   const generateSessionId = () => {
     if (typeof window !== 'undefined' && window.crypto && window.crypto.randomUUID) {
@@ -223,6 +237,28 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const startStation = _meta?.startStation
   const zielStation = _meta?.zielStation
 
+  const supersedeActiveRequests = useCallback((reason: string) => {
+    const activeSessionId = activeSessionIdRef.current
+    const activeController = abortControllerRef.current
+    const activeLazyRequest = lazyRequestRef.current
+
+    searchRunIdRef.current += 1
+    activeSessionIdRef.current = null
+    abortControllerRef.current = null
+    lazyRequestRef.current = null
+    activeController?.abort()
+    activeLazyRequest?.controller.abort()
+
+    for (const requestSessionId of [activeSessionId, activeLazyRequest?.sessionId]) {
+      if (!requestSessionId) continue
+      void fetch("/api/search-prices/cancel-search", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: requestSessionId, reason }),
+      }).catch(() => undefined)
+    }
+  }, [])
+
   // Beendet Stream und Progress-Polling sofort; die Backend-Benachrichtigung läuft separat.
   const cancelSearchWithReason = useCallback((reason: 'user_request' | 'page_hidden') => {
     const activeSessionId = activeSessionIdRef.current
@@ -232,6 +268,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
     logInfo(LOG_SCOPE, "Bestpreissuche cancellation requested", { sessionId: activeSessionId, reason })
 
+    searchRunIdRef.current += 1
     activeSessionIdRef.current = null
     abortControllerRef.current = null
     lazyRequestRef.current = null
@@ -242,6 +279,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     setIsStreaming(false)
     setSessionId(null)
     setSearchWasCancelled(true)
+    setInitialSearchComplete(false)
     setLazyCombinationRequest(null)
     setLazyDayRequest(null)
     setIsFullMatrixLoading(false)
@@ -284,40 +322,40 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   }, [cancelSearchWithReason])
 
   const restartSearch = useCallback(() => {
-    const activeSessionId = activeSessionIdRef.current
-    const activeController = abortControllerRef.current
-    const activeLazyRequest = lazyRequestRef.current
-
-    activeSessionIdRef.current = null
-    abortControllerRef.current = null
-    lazyRequestRef.current = null
-    activeController?.abort()
-    activeLazyRequest?.controller.abort()
-
-    for (const requestSessionId of [activeSessionId, activeLazyRequest?.sessionId]) {
-      if (!requestSessionId) continue
-      void fetch("/api/search-prices/cancel-search", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: requestSessionId, reason: "restart_search" }),
-      }).catch(() => undefined)
-    }
+    supersedeActiveRequests("restart_search")
 
     startedSearchKeyRef.current = null
     setShowAbortModal(false)
     setLoading(false)
     setIsStreaming(false)
     setSessionId(null)
+    setInitialSearchComplete(false)
     setLazyCombinationRequest(null)
     setLazyDayRequest(null)
     setIsFullMatrixLoading(false)
     setSearchAttempt((attempt) => attempt + 1)
-  }, [])
+  }, [supersedeActiveRequests])
+
+  const prepareSearchReplacement = useCallback(() => {
+    supersedeActiveRequests("superseded_search")
+    setShowAbortModal(false)
+    setLoading(false)
+    setIsStreaming(false)
+    setSessionId(null)
+    setInitialSearchComplete(false)
+    setLazyCombinationRequest(null)
+    setLazyDayRequest(null)
+    setIsFullMatrixLoading(false)
+  }, [supersedeActiveRequests])
 
   useEffect(() => {
     window.addEventListener("bestpreissuche:restart", restartSearch)
-    return () => window.removeEventListener("bestpreissuche:restart", restartSearch)
-  }, [restartSearch])
+    window.addEventListener("bestpreissuche:replace", prepareSearchReplacement)
+    return () => {
+      window.removeEventListener("bestpreissuche:restart", restartSearch)
+      window.removeEventListener("bestpreissuche:replace", prepareSearchReplacement)
+    }
+  }, [prepareSearchReplacement, restartSearch])
 
   // Cleanup bei Component Unmount oder Navigation
   useEffect(() => {
@@ -360,6 +398,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       // React startet Effects im Dev-Modus einmal testweise neu. Der verzögerte
       // Cleanup wird bei diesem direkten Reconnect oben wieder verworfen.
       unmountCleanupTimerRef.current = setTimeout(() => {
+        searchRunIdRef.current += 1
         notifyPageUnload('component_unmount')
         abortControllerRef.current?.abort()
         lazyRequestRef.current?.controller.abort()
@@ -453,8 +492,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     startedSearchKeyRef.current = currentSearchKey
 
     const searchPrices = async () => {
-      lazyRequestRef.current?.controller.abort()
-      lazyRequestRef.current = null
+      supersedeActiveRequests("superseded_search")
+      const searchRunId = searchRunIdRef.current
       setLazyCombinationRequest(null)
       setLazyDayRequest(null)
       setIsFullMatrixLoading(false)
@@ -468,6 +507,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       setIsStreaming(true)
       setShowAbortModal(false)
       setSearchWasCancelled(false)
+      setInitialSearchComplete(false)
       processedDaysRef.current = new Set()
       
       // Generiere sessionId sofort im Frontend
@@ -489,6 +529,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           body: JSON.stringify(buildSearchRequestBody(newSessionId)),
         })
 
+        if (searchRunIdRef.current !== searchRunId) return
+
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
           throw new Error(errorData.error || `HTTP ${response.status}: Bestpreissuche fehlgeschlagen`)
@@ -504,17 +546,24 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           try {
             while (true) {
               const { done, value } = await reader.read()
+              if (searchRunIdRef.current !== searchRunId) return
               if (done) break
               buffer += decoder.decode(value, { stream: true })
               const lines = buffer.split('\n')
               buffer = lines.pop() || ""
               
               for (const line of lines) {
+                if (searchRunIdRef.current !== searchRunId) return
                 if (line.trim()) {
                   try {
                     const data = JSON.parse(line)
                     
-                    if (data.type === 'dayResult') {
+                    if (data.type === 'meta') {
+                      setPriceResults(prev => ({
+                        ...prev,
+                        _meta: data.meta,
+                      }))
+                    } else if (data.type === 'dayResult') {
                       // Einzelnes Tagesergebnis hinzufügen
                       setPriceResults(prev => ({
                         ...prev,
@@ -545,6 +594,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                       setTravelCombinations(data.travelCombinations || [])
                       setLoading(false)
                       setIsStreaming(false)
+                      setInitialSearchComplete(true)
                       activeSessionIdRef.current = null
                       abortControllerRef.current = null
                       setSessionId(null)
@@ -568,6 +618,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           
           // Fallback: Versuche finalen Buffer als JSON zu parsen
           if (buffer.trim()) {
+            if (searchRunIdRef.current !== searchRunId) return
             try {
               const finalData = JSON.parse(buffer)
               const finalResults = finalData.results || finalData
@@ -589,6 +640,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         } else {
           // Fallback für non-streaming response
           const data = await response.json()
+          if (searchRunIdRef.current !== searchRunId) return
           const responseResults = data.results || data
           setPriceResults((current) => ({
             ...current,
@@ -598,6 +650,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           setReturnPriceResults((current) => ({ ...current, ...(data.returnResults || {}) }))
           setTravelCombinations(data.travelCombinations || [])
         }
+
+        if (searchRunIdRef.current !== searchRunId) return
+        setInitialSearchComplete(true)
         
         if (activeSessionIdRef.current === newSessionId) {
           activeSessionIdRef.current = null
@@ -605,6 +660,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           setSessionId(null)
         }
       } catch (err) {
+        if (searchRunIdRef.current !== searchRunId) return
          // Check if error was due to abort
         if (err instanceof Error && err.name === 'AbortError') {
           logInfo(LOG_SCOPE, "Bestpreissuche request aborted by user", { sessionId: newSessionId })
@@ -612,7 +668,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           logError(LOG_SCOPE, "Bestpreissuche client request failed", err, { sessionId: newSessionId })
         }
       } finally {
-        if (activeSessionIdRef.current === newSessionId) {
+        if (searchRunIdRef.current === searchRunId && activeSessionIdRef.current === newSessionId) {
           activeSessionIdRef.current = null
           abortControllerRef.current = null
           setLoading(false)
@@ -651,6 +707,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.wochentage, // Changed from 'tage'
     searchParams.returnWochentage,
     searchParams.umstiegszeit,
+    supersedeActiveRequests,
   ])
 
   const fetchRequestedDates = async (
@@ -672,6 +729,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     const controller = new AbortController()
     lazyRequestRef.current = { key: requestKey, sessionId: requestSessionId, controller }
     const receivedOutwardResults: PriceResults = {}
+    const ensureCurrentRequest = () => {
+      if (lazyRequestRef.current?.controller !== controller) {
+        throw new DOMException("Request superseded", "AbortError")
+      }
+    }
 
     try {
       const response = await fetch("/api/search-prices", {
@@ -680,6 +742,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         signal: controller.signal,
         body: JSON.stringify(buildSearchRequestBody(requestSessionId, requestedDates, overrides)),
       })
+      ensureCurrentRequest()
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unbekannter Fehler" }))
         throw new Error(errorData.error || `HTTP ${response.status}`)
@@ -692,6 +755,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       let buffer = ""
       while (true) {
         const { done, value } = await reader.read()
+        ensureCurrentRequest()
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
@@ -699,6 +763,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         buffer = lines.pop() || ""
 
         for (const line of lines) {
+          ensureCurrentRequest()
           if (!line.trim()) continue
           const data = JSON.parse(line)
           if (data.type === "dayResult") {
@@ -725,6 +790,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         }
       }
 
+      ensureCurrentRequest()
       return receivedOutwardResults
     } finally {
       if (lazyRequestRef.current?.key === requestKey) {
@@ -762,6 +828,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   const requestLazyDay = async (date: string) => {
     const requestKey = `day:${date}`
+    if (!initialSearchComplete) return
     if (lazyRequestRef.current?.key === requestKey) return
     if (Object.prototype.hasOwnProperty.call(priceResults, date)) return
     if (isStreaming && availableOutwardDates.includes(date)) return
@@ -970,6 +1037,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                   expectedDays={expectedDays}
                   lazyDayRequest={lazyDayRequest}
                   onRequestDay={requestLazyDay}
+                  canRequestAdditionalDays={initialSearchComplete}
               />
             </div>
 
@@ -981,6 +1049,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                 searchParams={searchParams}
                 onNavigateDay={handleNavigateDay}
                 dayKeys={dayKeys}
+                isLoading={Boolean(isStreaming && !selectedData)}
             />
           </>
         )}

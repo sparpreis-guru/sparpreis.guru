@@ -429,33 +429,40 @@ async function updateFromRelease(): Promise<void> {
   }
 }
 
-async function refreshCacheIfNeeded(): Promise<void> {
-  const reason = await getRefreshReason()
-  if (!refreshPromise && reason !== null) {
+function startRefresh(): Promise<void> {
+  if (!refreshPromise) {
     nextReleaseCheckAt = Date.now() + FAILED_REFRESH_RETRY_MS
     refreshPromise = updateFromRelease()
       .then(() => {
         nextReleaseCheckAt = Date.now() + REFRESH_INTERVAL_MS
       })
+      .catch(error => {
+        logWarn(LOG_SCOPE, "Could not refresh direct connections DB; serving fallback if available", {
+          error: error instanceof Error ? error.message : error,
+        })
+      })
       .finally(() => {
         refreshPromise = null
       })
   }
-  if (!refreshPromise) return
 
-  try {
-    await refreshPromise
-  } catch (error) {
-    logWarn(LOG_SCOPE, "Could not refresh direct connections DB; serving fallback if available", {
-      error: error instanceof Error ? error.message : error,
-    })
-  }
+  return refreshPromise
 }
 
 export async function getDirectConnectionsDb(): Promise<Database.Database> {
-  await refreshCacheIfNeeded()
+  const localDatabase = await findLocalDatabase()
+  let nextPath: string
 
-  const nextPath = await activeDbPath()
+  if (localDatabase) {
+    nextPath = localDatabase.path
+    if (Date.now() >= nextReleaseCheckAt) {
+      void startRefresh()
+    }
+  } else {
+    await startRefresh()
+    nextPath = await activeDbPath()
+  }
+
   if (!db || dbPath !== nextPath) {
     closeOpenDatabase()
     db = new Database(nextPath, { readonly: true, fileMustExist: true })

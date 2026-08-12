@@ -47,7 +47,7 @@ Aufbau und Wartung der SQLite-Datenbank sind unter [Datenbank und Wartung](docs/
 
 Das Docker-Image wird zusätzlich als `butti/sparpreis-guru:latest` auf Docker Hub gespiegelt.
 
-Die Direktverbindungsdaten werden beim ersten Aufruf automatisch geladen und danach regelmäßig aktualisiert. Für einen manuellen Neuaufbau aus den GTFS.de-Feeds wird Python 3 benötigt:
+Die Direktverbindungsdaten werden beim ersten Aufruf automatisch geladen und danach regelmäßig aktualisiert. Ein vorhandener lokaler Bestand ist dabei sofort verfügbar, während die Aktualitätsprüfung im Hintergrund läuft. Für einen manuellen Neuaufbau aus den GTFS.de-Feeds wird Python 3 benötigt:
 
 ```bash
 pnpm build:direct-connections
