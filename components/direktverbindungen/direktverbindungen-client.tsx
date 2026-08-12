@@ -706,7 +706,7 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
               </div>
             </div>
 
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-4" aria-busy={isLoading}>
               <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
                 <div className="relative">
                   <Label htmlFor="direct-start" className="mb-2 block text-sm font-medium text-gray-700">
@@ -725,6 +725,7 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                       placeholder="z. B. Berlin Hauptbahnhof"
                       autoComplete="off"
                       className={`${ctrl} px-10`}
+                      disabled={isLoading}
                       onChange={event => {
                         setQuery(event.target.value)
                         setShowSuggestions(true)
@@ -740,7 +741,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                         type="button"
                         aria-label="Startbahnhof zurücksetzen"
                         onClick={reset}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                        disabled={isLoading}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-700 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <X className="h-4 w-4" />
                       </button>
@@ -797,7 +799,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                           key={value}
                           type="button"
                           onClick={() => changeProductFilter(value)}
-                          className={`min-w-0 rounded-md px-1.5 py-2 text-xs font-semibold transition sm:px-3 sm:text-sm ${
+                          disabled={isLoading}
+                          className={`min-w-0 rounded-md px-1.5 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 sm:px-3 sm:text-sm ${
                             productFilter === value
                               ? "bg-white text-blue-700 shadow-sm"
                               : "text-gray-600 hover:text-gray-900"
@@ -837,7 +840,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                           key={value}
                           type="button"
                           onClick={() => changeMaxDuration(value)}
-                          className={`rounded-md px-2 py-2 text-xs font-semibold transition sm:text-sm ${
+                          disabled={isLoading}
+                          className={`rounded-md px-2 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm ${
                             maxDuration === value
                               ? "bg-white text-blue-700 shadow-sm"
                               : "text-gray-600 hover:text-gray-900"
@@ -876,7 +880,8 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
                         key={value}
                         type="button"
                         onClick={() => changeMinTripsPerDay(value)}
-                        className={`rounded-md px-2 py-2 text-xs font-semibold transition sm:text-sm ${
+                        disabled={isLoading}
+                        className={`rounded-md px-2 py-2 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 sm:text-sm ${
                           minTripsPerDay === value
                             ? "bg-white text-blue-700 shadow-sm"
                             : "text-gray-600 hover:text-gray-900"
@@ -892,32 +897,27 @@ export default function DirektverbindungenClient({ showFooter = false }: Direktv
               </div>
 
               <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
-                <Button type="submit" className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700">
-                  <Route className="h-4 w-4" />
-                  Direktziele anzeigen
+                {isDatabaseUpdating && (
+                  <span role="status" aria-live="polite" className="sr-only">
+                    Die Direktverbindungsdaten werden aktualisiert. Die Suche ist gleich verfügbar.
+                  </span>
+                )}
+                <Button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:bg-blue-100 disabled:text-blue-800 disabled:opacity-100"
+                >
+                  {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Route className="h-4 w-4" />}
+                  {isDatabaseUpdating
+                    ? "Datenbasis wird aktualisiert …"
+                    : isLoading
+                      ? "Daten werden geladen …"
+                      : "Direktziele anzeigen"}
                 </Button>
               </div>
             </form>
           </div>
         </section>
-
-        {isLoading && isDatabaseUpdating && (
-          <section
-            role="status"
-            aria-live="polite"
-            className="mb-8 rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900"
-          >
-            <div className="flex gap-3">
-              <Loader2 className="mt-0.5 h-5 w-5 flex-shrink-0 animate-spin" />
-              <div>
-                <div className="font-semibold">Datenbasis wird aktualisiert</div>
-                <p className="mt-1">
-                  Die Direktverbindungsdaten fehlen lokal oder sind veraltet. Die aktuelle Datenbank wird heruntergeladen. Das kann beim ersten Aufruf einen Moment dauern.
-                </p>
-              </div>
-            </div>
-          </section>
-        )}
 
         {error && (
           <section className="mb-8 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
