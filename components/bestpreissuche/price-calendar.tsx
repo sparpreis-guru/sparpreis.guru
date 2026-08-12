@@ -71,6 +71,7 @@ interface PriceCalendarProps {
     message?: string
   } | null
   onRequestDay?: (date: string) => void
+  canRequestAdditionalDays?: boolean
 }
 
 // Wochentage so anpassen, dass Montag links steht
@@ -105,6 +106,7 @@ export function PriceCalendar({
   selectedDay,
   lazyDayRequest,
   onRequestDay,
+  canRequestAdditionalDays = false,
 }: PriceCalendarProps) {
   const lazyDayRequestKey = lazyDayRequest?.date || ""
   const showLazyDayLoadingIndicator = useDelayedLoadingIndicator(
@@ -282,7 +284,9 @@ export function PriceCalendar({
     : expectedDateRange.length > 0
       ? expectedDateRange.length
       : (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length)
-  const completedDays = Object.values(results).filter(r => r && r.preis !== undefined).length
+  const completedDays = expectedDateRange.length > 0
+    ? expectedDateRange.filter(date => results[date]?.preis !== undefined).length
+    : Math.min(totalDays, Object.values(results).filter(r => r && r.preis !== undefined).length)
   const isCompleteNow = totalDays > 0 && completedDays >= totalDays
   const queueStatus = useSearchQueueStatus({
     sessionId,
@@ -308,7 +312,7 @@ export function PriceCalendar({
       />
 
       {/* Calendar Header und Legende */}
-      <div className={`mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm ${isStreaming ? "min-h-[100dvh]" : ""}`}>
+      <div className="mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
         {startStation && zielStation && (
           <header className="flex items-start justify-between gap-2 border-b border-blue-100 bg-blue-50/70 px-4 py-4 sm:items-center sm:gap-3 sm:px-5">
             <div className="min-w-0 flex-1">
@@ -322,17 +326,34 @@ export function PriceCalendar({
               </h2>
               <p className="mt-1 text-xs text-blue-700">{resultDates.length} Reisetage ausgewertet</p>
             </div>
-            {minPrice > 0 && (
-              <div className="shrink-0 self-start rounded-lg border border-green-200 bg-green-50 px-2 py-1.5 shadow-sm sm:self-center sm:px-4 sm:py-2 sm:text-right">
-                <div className="text-[10px] font-medium text-green-700 sm:text-xs">Günstigster Preis</div>
-                <div className="mt-0.5 flex items-baseline gap-1 text-green-800 sm:justify-end">
-                  <span className="text-xs font-semibold sm:text-sm">ab</span>
-                  <span className="text-xl font-bold tabular-nums sm:text-2xl">
-                    {minPrice.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
-                  </span>
-                </div>
-              </div>
-            )}
+            <div
+              className={`w-[7.5rem] shrink-0 self-start rounded-lg border px-2 py-1.5 sm:w-40 sm:self-center sm:px-4 sm:py-2 sm:text-right ${
+                minPrice > 0
+                  ? "border-green-200 bg-green-50 shadow-sm"
+                  : "border-blue-100 bg-white/60"
+              }`}
+            >
+              {minPrice > 0 ? (
+                <>
+                  <div className="text-[10px] font-medium text-green-700 sm:text-xs">Günstigster Preis</div>
+                  <div className="mt-0.5 flex items-baseline gap-1 text-green-800 sm:justify-end">
+                    <span className="text-xs font-semibold sm:text-sm">ab</span>
+                    <span className="text-xl font-bold tabular-nums sm:text-2xl">
+                      {minPrice.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <span className="sr-only">Günstigster Preis wird ermittelt</span>
+                  <div className="h-3 w-20 rounded bg-blue-100 sm:ml-auto sm:w-24" aria-hidden="true" />
+                  <div className="mt-2 flex items-center gap-1 sm:justify-end" aria-hidden="true">
+                    <div className="h-3 w-4 rounded bg-blue-100" />
+                    <div className="h-6 w-20 rounded bg-blue-100 sm:h-7" />
+                  </div>
+                </>
+              )}
+            </div>
           </header>
         )}
         <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-5">
@@ -367,22 +388,31 @@ export function PriceCalendar({
           </Button>
         </div>
 
-        {priceScale.activeBands.length > 0 && (
-          <div className="border-b bg-gray-50 p-3 sm:p-4">
-            <div className="flex flex-wrap items-center justify-center gap-2 text-xs sm:gap-3">
-              {priceScale.activeBands.map((band) => {
+        <div className="border-b bg-gray-50 p-3 sm:p-4">
+          <div className="flex flex-wrap items-center justify-center gap-2 text-xs sm:gap-3">
+            {priceScale.activeBands.length > 0 ? (
+              priceScale.activeBands.map((band) => {
                 const style = PRICE_BAND_STYLES[band]
                 return (
-                  <span key={band} className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-medium ${style.background} ${style.border} ${style.text}`}>
+                  <span
+                    key={band}
+                    className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-medium ${band === "best" ? "min-w-[7.5rem] justify-center" : ""} ${style.background} ${style.border} ${style.text}`}
+                  >
                     {style.label}
                     {band === "best" && ` ${minPrice} €`}
                     {band === "high" && ` bis ${maxPrice} €`}
                   </span>
                 )
-              })}
-            </div>
+              })
+            ) : (
+              <span className="inline-flex h-6 w-[7.5rem] items-center justify-center gap-1.5 rounded border border-gray-200 bg-white" aria-hidden="true">
+                <span className="h-2.5 w-14 rounded bg-gray-200" />
+                <span className="h-2.5 w-10 rounded bg-gray-200" />
+              </span>
+            )}
+            {priceScale.activeBands.length === 0 && <span className="sr-only">Preislegende wird ermittelt</span>}
           </div>
-        )}
+        </div>
 
         {/* Calendar Grid */}
         <div className="p-4">
@@ -414,8 +444,8 @@ export function PriceCalendar({
               const lazyRequestFailed = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "error"
               const isInitialPending = Boolean(isStreaming && isExpectedDay && !hasResult)
               const isPendingDay = isInitialPending || showLazyPending
-              const canRequestDay = isRequestableDay && !hasResult && !isInitialPending && !isLazyPending && Boolean(onRequestDay)
-              const showRequestPrompt = isRequestableDay && !hasResult && !isInitialPending && !showLazyPending && Boolean(onRequestDay)
+              const canRequestDay = canRequestAdditionalDays && isRequestableDay && !hasResult && !isInitialPending && !isLazyPending && Boolean(onRequestDay)
+              const showRequestPrompt = canRequestAdditionalDays && isRequestableDay && !hasResult && !isInitialPending && !showLazyPending && Boolean(onRequestDay)
 
               return (
                 <div
@@ -535,12 +565,11 @@ export function PriceCalendar({
         </div>
 
         <div className="border-t bg-gray-50 p-4 text-center text-xs text-gray-600">
-          Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu zwei Wochen vor oder nach dem Suchzeitraum ab
-          {isStreaming && (
-            <span className="ml-2 text-blue-600">
-              (Weitere Ergebnisse werden geladen...)
-            </span>
-          )}
+          {canRequestAdditionalDays
+            ? "Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu zwei Wochen vor oder nach dem Suchzeitraum ab"
+            : isStreaming
+              ? "Weitere Tage können abgefragt werden, sobald die ursprüngliche Suche vollständig geladen ist."
+              : "Weitere Tage können erst nach einer vollständig abgeschlossenen Suche abgefragt werden."}
         </div>
       </div>
 

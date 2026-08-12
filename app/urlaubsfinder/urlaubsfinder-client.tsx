@@ -190,6 +190,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
     maximaleUmstiege?: string
   } | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const searchRunIdRef = useRef(0)
   const abortReasonRef = useRef<'manual' | 'auto' | null>(null)
   const lastSearchParamsRef = useRef<UrlauberfinderSearchParams | null>(null)
   const [initialFormParams, setInitialFormParams] = useState<Partial<UrlauberfinderSearchParams>>({})
@@ -200,6 +201,13 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   }, [])
 
   const handleSearch = async (params: UrlauberfinderSearchParams) => {
+    const previousController = abortControllerRef.current
+    const searchRunId = searchRunIdRef.current + 1
+    searchRunIdRef.current = searchRunId
+    previousController?.abort()
+
+    const controller = new AbortController()
+    abortControllerRef.current = controller
     lastSearchParamsRef.current = params
     try {
       setError(null)
@@ -237,16 +245,16 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         setHomeCoords(undefined)
       }
 
-      abortControllerRef.current = new AbortController()
-
       const response = await fetch('/api/urlaubsfinder', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(params),
-        signal: abortControllerRef.current.signal,
+        signal: controller.signal,
       })
+
+      if (searchRunIdRef.current !== searchRunId) return
 
       if (!response.ok) {
         const errorData = await response.json()
@@ -264,6 +272,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
 
       while (true) {
         const { done, value } = await reader.read()
+        if (searchRunIdRef.current !== searchRunId) return
         if (done) break
 
         buffer += decoder.decode(value, { stream: true })
@@ -273,6 +282,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         buffer = lines[lines.length - 1] // Keep incomplete line in buffer
 
         for (let i = 0; i < lines.length - 1; i++) {
+          if (searchRunIdRef.current !== searchRunId) return
           const line = lines[i].trim()
 
           if (line.startsWith('data: ')) {
@@ -313,10 +323,9 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
           }
         }
       }
-
-      setIsLoading(false)
-      abortControllerRef.current = null
     } catch (err) {
+      if (searchRunIdRef.current !== searchRunId) return
+
       if (err instanceof Error && err.name === 'AbortError') {
         setSearchWasCancelled(true)
         if (abortReasonRef.current === 'auto') {
@@ -331,16 +340,21 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
         setError(errorMsg)
         logError(LOG_SCOPE, "Urlaubsfinder client search failed", err)
       }
-      setIsLoading(false)
-      abortControllerRef.current = null
+    } finally {
+      if (searchRunIdRef.current === searchRunId && abortControllerRef.current === controller) {
+        setIsLoading(false)
+        abortControllerRef.current = null
+      }
     }
   }
 
   const handleCancel = () => {
-    if (abortControllerRef.current) {
+    const activeController = abortControllerRef.current
+    if (activeController) {
+      searchRunIdRef.current += 1
       abortReasonRef.current = 'manual'
-      abortControllerRef.current.abort()
       abortControllerRef.current = null
+      activeController.abort()
       setIsLoading(false)
       setSearchWasCancelled(true)
       setAbortModalMessage('Die Suche wurde abgebrochen.')
@@ -358,11 +372,13 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
     if (!isLoading) return
 
     const abortActiveSearch = () => {
-      if (abortControllerRef.current) {
-        abortReasonRef.current = 'auto'
-        abortControllerRef.current.abort()
-        abortControllerRef.current = null
-      }
+      const activeController = abortControllerRef.current
+      if (!activeController) return
+
+      searchRunIdRef.current += 1
+      abortReasonRef.current = 'auto'
+      abortControllerRef.current = null
+      activeController.abort()
       setIsLoading(false)
       setSearchWasCancelled(true)
       setAbortModalMessage(`Die Suche wurde automatisch abgebrochen, weil der Tab gewechselt oder die Seite verlassen wurde. ${BACKGROUND_SEARCH_NOTICE}`)
@@ -395,6 +411,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
       window.removeEventListener('beforeunload', handleBeforeUnload)
 
       if (abortControllerRef.current) {
+        searchRunIdRef.current += 1
         abortControllerRef.current.abort()
         abortControllerRef.current = null
       }

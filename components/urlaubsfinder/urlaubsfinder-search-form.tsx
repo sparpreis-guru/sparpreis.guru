@@ -943,11 +943,10 @@ export function UrlauberfinderSearchForm({
         <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
           <Button
             type="submit"
-            disabled={isSearching}
-            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
           >
             <Ticket className="mr-2 h-4 w-4" />
-            {isSearching ? "Sucht..." : "Günstige Ziele finden"}
+            {isSearching ? "Neue Suche starten" : "Günstige Ziele finden"}
           </Button>
         </div>
       </form>

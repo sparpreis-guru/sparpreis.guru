@@ -2660,80 +2660,202 @@ function DayRideList({
 }
 
 
+function InitialCombinationResultPlaceholder({
+  outwardDate,
+  returnDate,
+  dense = false,
+}: {
+  outwardDate?: string
+  returnDate?: string
+  dense?: boolean
+}) {
+  const nights = outwardDate && returnDate ? getNights(outwardDate, returnDate) : undefined
+
+  return (
+    <article className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.10)]">
+      <RoundTripJourneySummaryPlaceholder
+        outwardDate={outwardDate}
+        returnDate={returnDate}
+        nights={nights}
+        dense={dense}
+      />
+      <JourneyResultActionBar
+        dense={dense}
+        secondaryColumns={2}
+        bookingActions={(
+          <div className="grid w-full grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
+            <div className="h-8 rounded-md bg-blue-100 sm:w-28" aria-hidden="true" />
+            <div className="h-8 rounded-md border border-blue-100 bg-white sm:w-28" aria-hidden="true" />
+          </div>
+        )}
+        secondaryActions={(
+          <>
+            <div className="h-8 rounded-md border border-gray-200 bg-white sm:h-4 sm:w-28 sm:border-0 sm:bg-gray-100" aria-hidden="true" />
+            <div className="h-8 rounded-md border border-gray-200 bg-white sm:h-4 sm:w-28 sm:border-0 sm:bg-gray-100" aria-hidden="true" />
+          </>
+        )}
+      />
+    </article>
+  )
+}
+
 function TravelCombinationsPlaceholder({
   startStation,
   zielStation,
+  searchStart,
+  searchEnd,
+  outwardDate,
+  returnDate,
 }: {
   startStation?: { name: string; id: string }
   zielStation?: { name: string; id: string }
+  searchStart?: string
+  searchEnd?: string
+  outwardDate?: string
+  returnDate?: string
 }) {
+  const searchDayCount = searchStart && searchEnd ? getNights(searchStart, searchEnd) + 1 : null
+
   return (
-    <div className="flex min-h-[100dvh] flex-col gap-4" aria-label="Reisekombinationen werden vorbereitet">
+    <div className="flex flex-col gap-4" aria-label="Reisekombinationen werden vorbereitet" aria-busy="true">
       <section className="overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
-        <header className="border-b border-blue-100 bg-blue-50/70 px-4 py-3 sm:px-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
-            <Train className="h-4 w-4 text-blue-700" />
-            Reiseübersicht
-          </h2>
+        <header className="flex items-start justify-between gap-2 border-b border-blue-100 bg-blue-50/70 px-4 py-4 sm:items-center sm:gap-3 sm:px-5">
+          <div className="min-w-0 flex-1">
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Hin- und Rückfahrt</div>
+            <h2 className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-base text-blue-950 sm:flex-nowrap sm:text-lg">
+              <span className="min-w-0 truncate font-bold">{startStation?.name || "Start"}</span>
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full border border-blue-200 bg-white text-blue-600" aria-hidden="true">
+                <ArrowLeftRight className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 truncate font-bold">{zielStation?.name || "Ziel"}</span>
+            </h2>
+            <p className="mt-1 text-xs text-blue-700">Reisekombinationen werden berechnet</p>
+          </div>
+          <div className="w-32 shrink-0 self-start rounded-lg border border-blue-100 bg-white/60 px-2 py-1.5 sm:w-44 sm:self-center sm:px-4 sm:py-2" aria-hidden="true">
+            <div className="h-3 w-24 animate-pulse rounded bg-blue-100 sm:ml-auto sm:w-32" />
+            <div className="mt-2 flex items-center justify-end gap-1">
+              <div className="h-3 w-4 animate-pulse rounded bg-blue-100" />
+              <div className="h-7 w-20 animate-pulse rounded bg-blue-100" />
+            </div>
+          </div>
         </header>
 
-        <div className="border-b border-gray-200 px-4 py-4 sm:px-5">
-          <div className="text-xs font-semibold uppercase text-blue-700">Ausgewählte Verbindung</div>
-          <div className="mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4">
-            <div className="min-w-0 text-sm font-semibold text-gray-900 sm:text-base">
-              {startStation?.name || "Start"} nach {zielStation?.name || "Ziel"} und zurück
+        <div className="border-b border-blue-100 bg-white p-2 lg:hidden">
+          <div className="grid grid-cols-2 rounded-lg bg-gray-100 p-1" aria-hidden="true">
+            <div className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-white px-3 text-sm font-semibold text-blue-800 shadow-sm">
+              <Train className="h-4 w-4" /> Liste
             </div>
-            <div className="shrink-0 text-right">
-              <div className="text-[11px] text-gray-500 sm:text-xs">Gesamtpreis</div>
-              <div className="mt-1 h-8 w-20 animate-pulse rounded-md bg-gray-200" />
+            <div className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md px-3 text-sm font-semibold text-gray-600">
+              <Table2 className="h-4 w-4" /> Preismatrix
             </div>
           </div>
         </div>
 
-        <div className="grid bg-gray-50/60 md:grid-cols-2 md:divide-x md:divide-gray-200">
-          {["Hinfahrt", "Rückfahrt"].map((label, index) => (
-            <div key={label} className={cn("px-4 py-4 sm:px-5", index === 1 && "border-t border-gray-200 md:border-t-0")}>
-              <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">{label}</div>
-              <div className="mt-2 animate-pulse space-y-2">
-                <div className="h-4 w-1/2 rounded bg-gray-200" />
-                <div className="h-6 w-2/3 rounded bg-gray-200" />
-                <div className="h-3 w-3/4 rounded bg-gray-200" />
+        <div className="border-b border-gray-200 px-4 py-3 sm:px-5">
+          <div className="text-xs font-semibold uppercase tracking-wide text-gray-500">Reisezeitraum</div>
+          <div className="mt-0.5 text-sm font-semibold text-gray-900">Hin- und Rückfahrt verschieben</div>
+        </div>
+        <div className="px-4 pb-1 sm:px-5">
+          <div className="pt-3" aria-hidden="true">
+            <div className="flex justify-end text-xs text-blue-700">
+              <span className="inline-flex items-center gap-1.5">
+                <span className="h-2.5 w-2.5 border border-gray-200 bg-gray-100" /> Wochenende
+              </span>
+              {searchDayCount !== null && <span className="ml-3">{searchDayCount} Reisetage</span>}
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-xs sm:hidden">
+              <div>
+                <div className="font-medium text-gray-500">Hinfahrt</div>
+                <div className="font-semibold text-blue-800">{outwardDate ? formatDate(outwardDate) : "–"}</div>
+              </div>
+              <div className="text-right">
+                <div className="font-medium text-gray-500">Rückfahrt</div>
+                <div className="font-semibold text-blue-800">{returnDate ? formatDate(returnDate) : "–"}</div>
               </div>
             </div>
-          ))}
+            <div className="relative mx-1 mt-4 h-28 sm:mx-2 sm:h-32">
+              <div className="absolute left-0 right-0 top-5 h-1 rounded bg-blue-100 sm:top-12" />
+              <div className="absolute left-[18%] right-[24%] top-5 h-1 rounded bg-blue-300 sm:top-12" />
+              <span className="absolute left-[18%] top-1 flex h-8 w-8 -translate-x-1/2 items-center justify-center rounded-full sm:top-8">
+                <span className="h-5 w-5 rounded-full border-2 border-white bg-blue-300 shadow-sm" />
+              </span>
+              <span className="absolute right-[24%] top-1 flex h-8 w-8 translate-x-1/2 items-center justify-center rounded-full sm:top-8">
+                <span className="h-5 w-5 rounded-full border-2 border-blue-300 bg-white shadow-sm" />
+              </span>
+              <div className="absolute left-1/2 top-[3rem] h-3 w-16 -translate-x-1/2 animate-pulse rounded bg-gray-200 sm:top-[4.9rem]" />
+              <div className="absolute bottom-0 left-0">
+                <div className="text-[10px] uppercase text-gray-500">Suchbeginn</div>
+                <div className="text-xs font-semibold text-gray-800 sm:text-sm">{searchStart ? formatDate(searchStart) : "–"}</div>
+              </div>
+              <div className="absolute bottom-0 right-0 text-right">
+                <div className="text-[10px] uppercase text-gray-500">Suchende</div>
+                <div className="text-xs font-semibold text-gray-800 sm:text-sm">{searchEnd ? formatDate(searchEnd) : "–"}</div>
+              </div>
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center justify-between gap-3 border-t border-gray-200 bg-white px-4 py-3 sm:px-5">
-          <span className="inline-flex items-center gap-2 text-xs font-semibold text-gray-700">
-            <Train className="h-4 w-4 text-blue-600" />
-            Fahrtverlauf
-          </span>
-          <div className="h-3 w-20 animate-pulse rounded bg-gray-200" />
+        <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 sm:px-5">
+          <div className="text-xs font-semibold uppercase text-gray-600">Weitere Fahrten an diesen Reisetagen</div>
+          <div className="mt-2 grid gap-2 sm:grid-cols-2">
+            {["Hinfahrt", "Rückfahrt"].map((label) => (
+              <div key={label} className="flex min-h-12 items-center gap-3 rounded-md border border-gray-200 bg-white px-3 py-2" aria-hidden="true">
+                <Calendar className="h-4 w-4 shrink-0 text-blue-300" />
+                <span className="min-w-0 flex-1 space-y-1.5">
+                  <span className="block text-xs font-semibold text-gray-900">{label}</span>
+                  <span className="block h-2.5 w-36 max-w-full rounded bg-gray-100" />
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" />
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
-      <section className="flex flex-1 flex-col overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
-        <div className="flex items-center justify-between gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-            <Train className="h-4 w-4" />
-            Verfügbare Reisekombinationen
+      <section className="overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-blue-200 bg-blue-50 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-900">
+              <Train className="h-4 w-4" /> Verbindungen
+            </div>
+            <div className="mt-0.5 text-xs text-blue-700">Alle Verbindungen nach Gesamtpreis aufsteigend sortiert</div>
           </div>
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            Wird berechnet
-          </span>
+          <div className="flex w-full flex-col gap-2 lg:w-auto lg:items-end">
+            <span className="inline-flex items-center gap-1.5 text-xs font-medium text-blue-700">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" /> Wird laufend ergänzt
+            </span>
+            <div className="flex h-9 w-full animate-pulse items-center gap-2 rounded-md border border-blue-200 bg-white px-2 lg:w-72" aria-hidden="true">
+              <div className="h-3 w-12 rounded bg-blue-100" />
+              <div className="h-3 flex-1 rounded bg-gray-100" />
+              <div className="h-5 w-px bg-gray-200" />
+              <div className="h-4 w-16 rounded bg-blue-100" />
+            </div>
+          </div>
         </div>
-        <div className="flex-1 space-y-3 bg-slate-100/80 p-2.5 sm:p-3">
+        <div className="space-y-3 bg-slate-100/80 p-2.5 sm:p-3">
           {[0, 1].map((item) => (
-            <div key={item} className="animate-pulse rounded-lg border border-gray-300 bg-white p-3 shadow-[0_1px_4px_rgba(15,23,42,0.10)] sm:p-4">
-              <div className="mb-3 flex items-center justify-between gap-4">
-                <div className="h-4 w-24 rounded bg-gray-200" />
-                <div className="h-6 w-20 rounded bg-gray-200" />
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="h-12 rounded bg-gray-100" />
-                <div className="h-12 rounded bg-gray-100" />
-              </div>
+            <InitialCombinationResultPlaceholder
+              key={item}
+              outwardDate={outwardDate}
+              returnDate={returnDate}
+            />
+          ))}
+        </div>
+      </section>
+
+      <section className="hidden overflow-hidden border-y border-gray-200 bg-gray-50 pt-4 sm:rounded-lg sm:border sm:shadow-sm lg:block" aria-hidden="true">
+        <div className="border-b border-gray-200 px-4 pb-3 text-sm font-semibold text-gray-800">Preismatrix</div>
+        <div className="border-b border-gray-200 bg-gray-50 p-2">
+          <InitialCombinationResultPlaceholder
+            outwardDate={outwardDate}
+            returnDate={returnDate}
+            dense
+          />
+        </div>
+        <div className="grid grid-cols-[8rem_repeat(5,minmax(4rem,1fr))] gap-px bg-gray-200 p-px">
+          {Array.from({ length: 24 }, (_, index) => (
+            <div key={index} className={cn("h-12 animate-pulse bg-white p-2", index < 6 && "bg-blue-50")}>
+              <div className="mx-auto mt-2 h-3 w-3/5 rounded bg-gray-100" />
             </div>
           ))}
         </div>
@@ -2878,6 +3000,12 @@ export function TravelCombinations({
   ].filter((date): date is string => Boolean(date)).sort()
   const searchStart = searchParams.reisezeitraumAb || searchDates[0] || primaryCombination?.outwardDate || ""
   const searchEnd = searchDates[searchDates.length - 1] || primaryCombination?.returnDate || searchStart
+  const placeholderOutwardDate = initialSearchDates.outwardDates[0]
+  const placeholderReturnDate = initialSearchDates.returnDates.find((date) => {
+    if (!placeholderOutwardDate) return false
+    const nights = getNights(placeholderOutwardDate, date)
+    return nights >= minNights && (typeof maxNights !== "number" || nights <= maxNights)
+  }) || initialSearchDates.returnDates[0]
 
   const handleSelectCombination = (outwardDate: string, returnDate: string) => {
     const nextCombination = buildCombinationFromDates(outwardDate, returnDate, true)
@@ -2957,7 +3085,14 @@ export function TravelCombinations({
       )}
 
       {isStreaming && rankedCombinations.length === 0 && (
-        <TravelCombinationsPlaceholder startStation={startStation} zielStation={zielStation} />
+        <TravelCombinationsPlaceholder
+          startStation={startStation}
+          zielStation={zielStation}
+          searchStart={searchStart}
+          searchEnd={searchEnd}
+          outwardDate={placeholderOutwardDate}
+          returnDate={placeholderReturnDate}
+        />
       )}
 
       {!isStreaming && rankedCombinations.length === 0 && (

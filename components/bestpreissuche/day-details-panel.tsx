@@ -15,6 +15,7 @@ import { ConnectionsTable } from "./day-connections-table"
 import { PriceHistoryChart, type PriceHistoryEntry } from "./price-history-chart"
 import { logWarn } from "@/lib/shared/logger"
 import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
+import { OneWayJourneySummaryPlaceholder } from "@/components/search/journey-result"
 
 const LOG_SCOPE = "bestpreissuche.day-details"
 
@@ -47,6 +48,7 @@ interface DayDetailsPanelProps {
   searchParams?: any
   onNavigateDay?: (direction: number) => void
   dayKeys?: string[]
+  isLoading?: boolean
 }
 
 const weekdays = ["Sonntag", "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag"]
@@ -75,6 +77,7 @@ export function DayDetailsPanel({
   searchParams,
   onNavigateDay,
   dayKeys = [],
+  isLoading = false,
 }: DayDetailsPanelProps) {
   const [showOnlyCheapest, setShowOnlyCheapest] = useState(false)
   const [sortKey, setSortKey] = useState<'preis' | 'abfahrt' | 'ankunft' | 'umstiege' | 'dauer'>('preis')
@@ -182,6 +185,10 @@ export function DayDetailsPanel({
       }
       return sortDir === 'asc' ? valA - valB : valB - valA
     })
+  }
+
+  if ((!date || !data) && isLoading) {
+    return <DayDetailsPanelSkeleton />
   }
 
   if (!date || !data) {
@@ -366,6 +373,48 @@ export function DayDetailsPanel({
             </motion.div>
           </AnimatePresence>
         </div>
+      </div>
+    </section>
+  )
+}
+
+function DayDetailsPanelSkeleton() {
+  return (
+    <section
+      id="day-connections"
+      className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"
+      aria-label="Verbindungen für den ersten Reisetag werden geladen"
+      aria-busy="true"
+    >
+      <header className="border-b border-blue-200 bg-blue-50/95 px-2 py-2 sm:px-3">
+        <div className="grid grid-cols-[minmax(0,1fr)_minmax(7rem,1.35fr)_minmax(0,1fr)] items-center gap-1 sm:gap-2">
+          <span className="h-9 w-9" aria-hidden="true" />
+          <div className="mx-auto h-5 w-28 animate-pulse rounded bg-blue-100 sm:w-40" aria-hidden="true" />
+          <span className="ml-auto h-9 w-9" aria-hidden="true" />
+        </div>
+      </header>
+
+      <div className="border-b border-blue-200 bg-blue-50 px-4 py-3">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="animate-pulse space-y-1.5" aria-hidden="true">
+            <div className="h-4 w-32 rounded bg-blue-100" />
+            <div className="h-3 w-24 rounded bg-blue-100" />
+          </div>
+          <div className="flex animate-pulse items-center gap-2" aria-hidden="true">
+            <div className="h-5 w-9 rounded-full bg-blue-100" />
+            <div className="h-3 w-40 max-w-[60vw] rounded bg-blue-100" />
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-slate-100/80 p-2.5 sm:p-3">
+        <article className="overflow-hidden rounded-lg border border-gray-300 bg-white shadow-[0_1px_4px_rgba(15,23,42,0.10)]">
+          <OneWayJourneySummaryPlaceholder showBadges priceInMobileHeader />
+          <div className="flex min-h-11 items-center justify-end gap-2 border-t border-gray-200 bg-white px-3 py-2 sm:px-4" aria-hidden="true">
+            <div className="h-8 w-24 animate-pulse rounded-md bg-gray-100" />
+            <div className="h-8 w-28 animate-pulse rounded-md bg-blue-100" />
+          </div>
+        </article>
       </div>
     </section>
   )
