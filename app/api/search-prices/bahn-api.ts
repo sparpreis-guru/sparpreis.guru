@@ -11,6 +11,7 @@ import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logWarn } from '@/lib/shared/logger'
 import { formatDateKey, generateConnectionId, passesTimeFilter } from './utils';
 import { fetchBahn } from './bahn-http'
+import { buildRoutingSignature, fetchFlexpreisForDay, type FlexpreisSampleSource } from './flexpreis'
 import { searchStations } from '@/app/api/station-search/search-stations'
 
 const LOG_SCOPE = "bestpreissuche.bahn"
@@ -109,6 +110,10 @@ interface TrainResult {
   info: string
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
+  // Tagestarif im Flexpreis-Modus. Der Flexpreis ist ein Streckentarif und
+  // damit für alle Verbindungen eines Tages gleich, deshalb steht er auf
+  // Tagesebene und nicht je Verbindung.
+  flexPreis?: number
   allIntervals?: IntervalDetails[]
   priceHistory?: PriceHistoryEntry[]
 }
@@ -162,6 +167,10 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   const datum = formatDateKey(dateObj) + "T08:00:00"
   const tag = formatDateKey(dateObj)
 
+  // Im Flexpreis-Modus wird zusätzlich zur Tagesbestpreis-Abfrage der
+  // Streckentarif über recon ermittelt.
+  const tarif = config.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS"
+  const isFlexpreis = tarif === "FLEXPREIS"
 
   // Cache-Key generieren (ohne maximaleUmstiege, da wir alle Verbindungen cachen)
   const cacheKey = generateCacheKey({
@@ -174,6 +183,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     klasse: config.klasse,
     schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
     umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
+    tarif,
   })
 
   // Prüfe Cache
@@ -273,6 +283,9 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           info: bestInterval?.info || "",
           abfahrtsZeitpunkt: bestInterval?.abfahrtsZeitpunkt || "",
           ankunftsZeitpunkt: bestInterval?.ankunftsZeitpunkt || "",
+          // Der Tagestarif hängt nicht von den Zeit- und Umstiegsfiltern ab
+          // und wird deshalb unverändert aus dem Cache übernommen.
+          ...(cachedData.flexPreis !== undefined && { flexPreis: cachedData.flexPreis }),
           allIntervals: intervalsWithHistory.sort((a: any, b: any) => a.preis - b.preis) as IntervalDetails[],
           priceHistory: dayPriceHistory
         }
@@ -523,6 +536,10 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
   // Sammle alle Intervalle
   const finalAllIntervals: IntervalDetails[] = []
+  // ctxRecon-Handles für die Flexpreis-Abfrage. Sie werden bewusst nicht im
+  // Cache abgelegt: es sind lange Strings je Verbindung, während der daraus
+  // ermittelte Tagestarif eine einzelne Zahl ist.
+  const flexpreisSources: FlexpreisSampleSource[] = []
   let skippedTeilpreisOffers = 0
     
     for (const iv of data.intervalle) {
@@ -569,6 +586,13 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               umstiegsAnzahl: verbindung.verbindung.umstiegsAnzahl || 0,
               // Keine isCheapestPerInterval-Markierung hier - wird in route.ts gemacht
             })
+
+            if (isFlexpreis && typeof verbindung.verbindung.ctxRecon === "string") {
+              flexpreisSources.push({
+                ctxRecon: verbindung.verbindung.ctxRecon,
+                routingSignature: buildRoutingSignature(abschnitte),
+              })
+            }
           }
         }
       }
@@ -609,6 +633,24 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       return { result, wasApiCall: true, recordedAt: Date.now() }
     }
 
+    // Flexpreis des Reisetags ermitteln. Schlaegt die Abfrage fehl, bleibt das
+    // Feld leer und die Oberflaeche zeigt den Tag als ohne Flexpreis an,
+    // statt fälschlich einen Sparpreis als Flexpreis auszuweisen.
+    let flexPreis: number | null = null
+    if (isFlexpreis) {
+      flexPreis = await fetchFlexpreisForDay(
+        flexpreisSources,
+        {
+          klasse: config.klasse,
+          alter: config.alter,
+          ermaessigungArt: config.ermaessigungArt,
+          ermaessigungKlasse: config.ermaessigungKlasse,
+          sessionId,
+        },
+        tag
+      )
+    }
+
     // Erstelle vollständigen Cache-Eintrag mit ALLEN Verbindungen (ohne Markierung)
     const fullResult = {
       [tag]: {
@@ -616,22 +658,29 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         info: "",
         abfahrtsZeitpunkt: "",
         ankunftsZeitpunkt: "",
+        ...(flexPreis !== null && { flexPreis }),
         allIntervals: finalAllIntervals.sort((a, b) => a.preis - b.preis), // Sort by price
       },
     }
 
-    // Cache ALLE Daten (ohne Zeitfilter)
-    setCachedResult(cacheKey, fullResult, {
-      startStationId: config.startStationNormalizedId,
-      zielStationId: config.zielStationNormalizedId,
-      date: tag,
-      alter: config.alter,
-      ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-      ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
-      klasse: config.klasse,
-      schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
-      umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-    })
+    // Cache ALLE Daten (ohne Zeitfilter).
+    // Im Flexpreis-Modus nur cachen, wenn der Tarif wirklich ermittelt wurde.
+    // Sonst wuerde ein abgebrochener oder fehlgeschlagener Lauf den Tag eine
+    // Stunde lang als "kein Preis" festschreiben, obwohl ein neuer Versuch
+    // sofort Erfolg haette.
+    if (!isFlexpreis || flexPreis !== null) {
+      setCachedResult(cacheKey, fullResult, {
+        startStationId: config.startStationNormalizedId,
+        zielStationId: config.zielStationNormalizedId,
+        date: tag,
+        alter: config.alter,
+        ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
+        ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
+        klasse: config.klasse,
+        schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
+        umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
+      })
+    }
 
     // Jetzt Zeitfilter für aktuelle Anfrage anwenden
     const timeFilteredIntervals = finalAllIntervals.filter(interval =>
@@ -730,6 +779,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         info: bestInterval?.info || "",
         abfahrtsZeitpunkt: bestInterval?.abfahrtsZeitpunkt || "",
         ankunftsZeitpunkt: bestInterval?.ankunftsZeitpunkt || "",
+        ...(flexPreis !== null && { flexPreis }),
         allIntervals: sortedFilteredIntervalsWithHistory,
         priceHistory: dayPriceHistory
       },

@@ -36,6 +36,8 @@ interface PriceData {
   info: string
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
+  // Tagestarif im Flexpreis-Modus; gilt für alle Verbindungen des Tages.
+  flexPreis?: number
   priceHistory?: PriceHistoryEntry[]
   allIntervals?: IntervalData[]
 }
@@ -329,6 +331,24 @@ export function DayDetailsPanel({
           </div>
         </div>
       </header>
+
+      {searchParams?.tarif === "FLEXPREIS" && (
+        <div className="border-b border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 sm:px-4">
+          {typeof data.flexPreis === "number" ? (
+            <>
+              <span className="font-semibold">Flexpreis: {data.flexPreis.toFixed(2).replace(".", ",")} €</span>
+              <span className="ml-2 text-xs text-blue-800">
+                günstigster Flexpreis dieses Tages. Er hängt von der Streckenführung ab, nicht vom einzelnen Zug.
+                Die Preise in der Liste sind die günstigsten Sparpreise der jeweiligen Verbindung.
+              </span>
+            </>
+          ) : (
+            <span className="text-xs">
+              Für diesen Tag konnte kein Flexpreis ermittelt werden. Die Liste zeigt die günstigsten Sparpreise.
+            </span>
+          )}
+        </div>
+      )}
 
       {data.priceHistory && data.priceHistory.length > 1 && (
         <div key={date} className="border-b border-gray-200 bg-white p-3 sm:p-4">

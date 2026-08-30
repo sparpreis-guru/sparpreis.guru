@@ -45,11 +45,24 @@ interface PriceData {
   info: string
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
+  // Tagestarif im Flexpreis-Modus; fehlt, wenn die Abfrage fehlgeschlagen ist.
+  flexPreis?: number
   allIntervals?: IntervalData[]
 }
 
 interface PriceResults {
   [date: string]: PriceData
+}
+
+// Im Flexpreis-Modus bestimmt der Tagestarif Anzeige, Farbskala und
+// Bestpreis-Markierung. Tage ohne ermittelten Flexpreis gelten als Tage ohne
+// Preis, damit nie ein Sparpreis als Flexpreis erscheint.
+function applyFlexpreis(results: PriceResults): PriceResults {
+  const mapped: PriceResults = {}
+  for (const [date, data] of Object.entries(results)) {
+    mapped[date] = date === "_meta" ? data : { ...data, preis: data.flexPreis ?? 0 }
+  }
+  return mapped
 }
 
 interface PriceCalendarProps {
@@ -72,6 +85,7 @@ interface PriceCalendarProps {
   } | null
   onRequestDay?: (date: string) => void
   canRequestAdditionalDays?: boolean
+  tarif?: string
 }
 
 // Wochentage so anpassen, dass Montag links steht
@@ -92,7 +106,7 @@ const months = [
 ]
 
 export function PriceCalendar({
-  results,
+  results: rawResults,
   onDayClick,
   startStation,
   zielStation,
@@ -107,7 +121,10 @@ export function PriceCalendar({
   lazyDayRequest,
   onRequestDay,
   canRequestAdditionalDays = false,
+  tarif,
 }: PriceCalendarProps) {
+  const isFlexpreis = tarif === "FLEXPREIS"
+  const results = isFlexpreis ? applyFlexpreis(rawResults) : rawResults
   const lazyDayRequestKey = lazyDayRequest?.date || ""
   const showLazyDayLoadingIndicator = useDelayedLoadingIndicator(
     lazyDayRequest?.status === "loading",
@@ -275,7 +292,9 @@ export function PriceCalendar({
 
   const handleDayClick = (dateKey: string, priceData: PriceData | undefined) => {
     if (priceData && priceData.preis > 0) {
-      onDayClick(dateKey, priceData)
+      // Bewusst der unveränderte Eintrag: die Tagesansicht listet die
+      // Sparpreise der einzelnen Verbindungen.
+      onDayClick(dateKey, rawResults[dateKey])
     }
   }
 
@@ -563,6 +582,14 @@ export function PriceCalendar({
             })}
           </div>
         </div>
+
+        {isFlexpreis && (
+          <div className="border-t bg-blue-50 px-4 py-2 text-center text-xs text-blue-800">
+            Flexpreis, {searchParams?.klasse === "KLASSE_1" ? "1. Klasse" : "2. Klasse"} — voller Tarif ohne
+            Zugbindung. Angezeigt wird der günstigste Flexpreis des jeweiligen Tages. Tage ohne Angabe konnten
+            nicht ermittelt werden.
+          </div>
+        )}
 
         <div className="border-t bg-gray-50 p-4 text-center text-xs text-gray-600">
           {canRequestAdditionalDays

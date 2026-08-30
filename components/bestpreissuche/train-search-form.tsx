@@ -135,6 +135,7 @@ interface SearchParams {
   ermaessigungArt?: string
   ermaessigungKlasse?: string
   klasse?: string
+  tarif?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
@@ -242,6 +243,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const [ermaessigungArt, setErmaessigungArt] = useState(searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG")
   const [ermaessigungKlasse, setErmaessigungKlasse] = useState(searchParams.ermaessigungKlasse || "KLASSENLOS")
   const [klasse, setKlasse] = useState(searchParams.klasse || "KLASSE_2")
+  const [tarif, setTarif] = useState(searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS")
   const [schnelleVerbindungen, setSchnelleVerbindungen] = useState(
     searchParams.schnelleVerbindungen === undefined || searchParams.schnelleVerbindungen === "1"
   )
@@ -658,6 +660,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     params.set("ermaessigungArt", ermaessigungArt)
     params.set("ermaessigungKlasse", ermaessigungKlasse)
     params.set("klasse", klasse)
+    // Nur den abweichenden Tarif in die URL schreiben, damit bestehende Links
+    // unverändert bleiben. Bei aktiver Rückfahrt gilt immer der Sparpreis.
+    if (tarif === "FLEXPREIS" && !rueckfahrtAktiv) params.set("tarif", tarif)
     if (schnelleVerbindungen) params.set("schnelleVerbindungen", "1")
     if (abfahrtAb) params.set("abfahrtAb", abfahrtAb)
     if (abfahrtBis) params.set("abfahrtBis", abfahrtBis)
@@ -1192,6 +1197,13 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           }}
           travelClass={klasse}
           onTravelClassChange={setKlasse}
+          tarif={tarif}
+          onTarifChange={setTarif}
+          tarifDisabledReason={
+            rueckfahrtAktiv
+              ? "Der Flexpreis-Modus gilt nur für die einfache Fahrt. Deaktiviere die Rückfahrt, um ihn zu verwenden."
+              : undefined
+          }
         />
 
         <ConnectionOptionsModule

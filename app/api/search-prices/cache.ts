@@ -31,6 +31,8 @@ interface TrainResult {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
   recordedAt?: number
+  // Tagestarif im Flexpreis-Modus; gilt für alle Verbindungen des Tages.
+  flexPreis?: number
   allIntervals?: Array<{
     preis: number
     abschnitte?: Array<{
@@ -227,6 +229,7 @@ export function generateCacheKey(params: {
   ankunftAb?: string
   ankunftBis?: string
   umstiegszeit?: string
+  tarif?: string
 }): string {
   const cleanedParams = {
     startStationId: params.startStationId,
@@ -238,6 +241,10 @@ export function generateCacheKey(params: {
     klasse: params.klasse,
     schnelleVerbindungen: params.schnelleVerbindungen,
     ...(params.umstiegszeit && params.umstiegszeit !== "undefined" && { umstiegszeit: params.umstiegszeit }),
+    // Nur im Flexpreis-Modus Teil des Keys, damit bestehende Sparpreis-Eintraege
+    // gültig bleiben. Ein Eintrag ohne Flexpreis darf nie als Flexpreis-Treffer
+    // ausgeliefert werden, deshalb müssen beide Modi getrennte Keys haben.
+    ...(params.tarif === "FLEXPREIS" && { tarif: params.tarif }),
   }
   
   return JSON.stringify(cleanedParams)

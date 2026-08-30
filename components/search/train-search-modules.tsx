@@ -10,6 +10,7 @@ import {
   Percent,
   Route,
   Settings,
+  Ticket,
   Train,
   User,
   X,
@@ -476,6 +477,9 @@ export function TravelerOptionsModule({
   onDiscountChange,
   travelClass,
   onTravelClassChange,
+  tarif,
+  onTarifChange,
+  tarifDisabledReason,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -486,6 +490,11 @@ export function TravelerOptionsModule({
   onDiscountChange: (type: string, discountClass: string) => void
   travelClass: string
   onTravelClassChange: (value: string) => void
+  // Optional, damit der Urlaubsfinder dieselbe Komponente unverändert nutzen
+  // kann. Der Umschalter erscheint nur, wenn ein Handler übergeben wird.
+  tarif?: string
+  onTarifChange?: (value: string) => void
+  tarifDisabledReason?: string
 }) {
   return (
     <div className="rounded-xl border border-gray-200 bg-white">
@@ -592,6 +601,48 @@ export function TravelerOptionsModule({
               ))}
             </div>
           </div>
+
+          {onTarifChange && (
+            <div className="mt-3">
+              <Label className="mb-2 block text-sm font-medium text-gray-600">
+                <span className="inline-flex items-center gap-1">
+                  <Ticket className="h-4 w-4 text-blue-500" />
+                  Tarif
+                </span>
+              </Label>
+              <div className="flex gap-3">
+                {[
+                  { value: "SPARPREIS", label: "Sparpreis" },
+                  { value: "FLEXPREIS", label: "Flexpreis" },
+                ].map(({ value, label }) => (
+                  <button
+                    key={value}
+                    type="button"
+                    disabled={Boolean(tarifDisabledReason)}
+                    className={`flex-1 rounded-lg border-2 px-4 py-3 text-sm font-medium transition-all ${
+                      tarifDisabledReason
+                        ? "cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400"
+                        : (tarif || "SPARPREIS") === value
+                          ? "border-blue-600 bg-blue-600 text-white shadow-sm"
+                          : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:bg-blue-50"
+                    }`}
+                    onClick={() => onTarifChange(value)}
+                    aria-pressed={(tarif || "SPARPREIS") === value}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Ticket className="h-4 w-4" />
+                      {label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+              <p className="mt-2 text-xs leading-4 text-gray-500">
+                {tarifDisabledReason
+                  ? tarifDisabledReason
+                  : "Der Flexpreis ist der volle Tarif ohne Zugbindung. Er hängt von der Streckenführung ab, nicht vom einzelnen Zug; angezeigt wird der günstigste Flexpreis je Reisetag. Das benötigt eine zusätzliche Abfrage pro Tag."}
+              </p>
+            </div>
+          )}
         </div>
       )}
     </div>

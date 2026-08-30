@@ -42,6 +42,7 @@ interface SearchParams {
   wochentage?: string // Only weekdays
   returnWochentage?: string
   umstiegszeit?: string
+  tarif?: string
 }
 
 interface TrainResultsProps {
@@ -59,6 +60,8 @@ interface PriceData {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
   recordedAt?: number
+  // Tagestarif im Flexpreis-Modus; gilt für alle Verbindungen des Tages.
+  flexPreis?: number
   priceHistory?: PriceHistoryEntry[]
   allIntervals?: Array<{
     preis: number
@@ -96,6 +99,7 @@ interface MetaData {
     wochentage?: number[]
     returnWochentage?: number[]
     umstiegszeit?: string
+    tarif?: string
   }
 }
 
@@ -475,6 +479,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     returnAnkunftAb: searchParams.returnAnkunftAb,
     returnAnkunftBis: searchParams.returnAnkunftBis,
     umstiegszeit: searchParams.umstiegszeit,
+    tarif: searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS",
     ...(requestedDates && {
       requestedOutwardDates: requestedDates.outwardDates,
       requestedReturnDates: requestedDates.returnDates,
@@ -707,6 +712,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.wochentage, // Changed from 'tage'
     searchParams.returnWochentage,
     searchParams.umstiegszeit,
+    searchParams.tarif,
     supersedeActiveRequests,
   ])
 
@@ -1038,6 +1044,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                   lazyDayRequest={lazyDayRequest}
                   onRequestDay={requestLazyDay}
                   canRequestAdditionalDays={initialSearchComplete}
+                  tarif={searchParams.tarif}
               />
             </div>
 
