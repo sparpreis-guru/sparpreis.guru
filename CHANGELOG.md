@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.3.2](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.1...v2.3.2) (2026-09-11)
+
+
+### Bug Fixes
+
+* next cve ([b2c5d1a](https://github.com/sparpreis-guru/sparpreis.guru/commit/b2c5d1a049fe1e09386a95fe036e1a58e47e7821))
+* next cve ([c2973b2](https://github.com/sparpreis-guru/sparpreis.guru/commit/c2973b262bb59f05fda0619cc51619ef92879a1a))
+
 ## [2.3.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.0...v2.3.1) (2026-08-12)
 
 
