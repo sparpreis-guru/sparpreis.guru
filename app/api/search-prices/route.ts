@@ -271,9 +271,15 @@ export async function POST(request: NextRequest) {
       returnAnkunftAb,
       returnAnkunftBis,
       umstiegszeit,
+      tarif,
       requestedOutwardDates,
       requestedReturnDates,
     } = body
+
+    // Unbekannte Werte fallen bewusst auf den Sparpreis zurueck, damit ein
+    // fehlerhafter Parameter nicht ungewollt die doppelte Zahl an Requests
+    // gegen die Bahn-API ausloest.
+    const resolvedTarif = tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS"
 
     const earliestSearchDate = getEarliestSearchDateKey()
     if (typeof reisezeitraumAb !== "string" || reisezeitraumAb < earliestSearchDate) {
@@ -611,6 +617,7 @@ export async function POST(request: NextRequest) {
               returnAnkunftBis,
               returnWochentage: returnSearchEnabled ? (returnWochentage || wochentage) : undefined,
               umstiegszeit,
+              tarif: resolvedTarif,
             },
             sessionId,
           }
@@ -680,6 +687,11 @@ export async function POST(request: NextRequest) {
               ankunftAb,
               ankunftBis,
               umstiegszeit,
+              // Nur die einfache Fahrt kennt den Flexpreis-Modus. Die
+              // Rückfahrt-Suche bleibt bewusst beim Sparpreis, und die
+              // Oberflaeche sperrt den Umschalter dort, damit keine gemischten
+              // Tarife nebeneinander stehen.
+              tarif: resolvedTarif,
             })
 
             // Füge recordedAt hinzu (mit Cast, da getBestPrice-Typ es nicht kennt)

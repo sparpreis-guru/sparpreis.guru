@@ -4,7 +4,7 @@
 
 ## Funktionen
 
-- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung.
+- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung. Für die einfache Fahrt lässt sich statt des Sparpreises der Flexpreis je Reisetag anzeigen.
 - **Flexible Hin- und Rückfahrt:** Kombiniert günstige Fahrten anhand der gewünschten Aufenthaltsdauer. Ergebnisse erscheinen als Preismatrix und sortierbare Liste mit Gesamtpreis, Reisedauer und Hinweisen auf reine Direktverbindungen.
 - **Klassikmodus:** Eine kompakte Kalenderansicht im Stil des ursprünglichen [bahn.guru](https://github.com/juliuste/bahn.guru), erreichbar unter `/klassik`.
 - **Urlaubsfinder:** Sucht ab einem Startbahnhof parallel nach günstigen Zielen – optional mit Rückfahrt – und stellt die Treffer als Liste und auf einer Karte dar.

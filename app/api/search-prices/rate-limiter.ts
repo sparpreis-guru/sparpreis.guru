@@ -127,7 +127,21 @@ class GlobalRateLimiter {
     )
   }
 
-  async addToQueue<T>(requestId: string, apiCall: () => Promise<T>, sessionId?: string): Promise<T> {
+  /**
+   * `priority` reiht den Request vorne in seine Session-Queue ein.
+   *
+   * Gedacht für Folgeanfragen, die einen bereits laufenden Reisetag
+   * abschliessen: Die Suche stellt alle Tage auf einmal in die Queue, eine
+   * hinten angehängte Folgeanfrage käme deshalb erst nach allen anderen Tagen
+   * dran und kein einziger Tag würde früh fertig. Der Retry-Pfad reiht aus
+   * demselben Grund vorne ein.
+   */
+  async addToQueue<T>(
+    requestId: string,
+    apiCall: () => Promise<T>,
+    sessionId?: string,
+    options?: { priority?: boolean }
+  ): Promise<T> {
     return new Promise((resolve, reject) => {
       const queuedRequest: QueuedRequest = {
         id: requestId,
@@ -152,7 +166,11 @@ class GlobalRateLimiter {
       }
       
       // Füge Request zur Session-Queue hinzu
-      this.sessionQueues.get(effectiveSessionId)!.push(queuedRequest)
+      if (options?.priority) {
+        this.sessionQueues.get(effectiveSessionId)!.unshift(queuedRequest)
+      } else {
+        this.sessionQueues.get(effectiveSessionId)!.push(queuedRequest)
+      }
       
       const totalRequests = Array.from(this.sessionQueues.values()).reduce((sum, queue) => sum + queue.length, 0)
       logDebug(LOG_SCOPE, "Request queued", {
@@ -647,7 +665,7 @@ class GlobalRateLimiter {
     // Nach dem schnellen Anfangs-Burst die noch freien Slots zuegig nutzen.
     // Ist das Kontingent voll, blockiert getRollingWindowDelay() exakt bis ein
     // Start aus dem Rolling Window faellt; ein kuenstliches Verteilen der
-    // verbleibenden Slots ueber das gesamte Fenster verlaengert nur die Suche.
+    // verbleibenden Slots über das gesamte Fenster verlaengert nur die Suche.
     return this.config.minPacedInterval
   }
 
