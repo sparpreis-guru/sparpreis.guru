@@ -70,6 +70,18 @@ pnpm build:direct-connections
 
 Prometheus-Metriken stehen unter `/api/metrics` bereit. In Produktion müssen dafür `METRICS_API_KEY` und `ALLOWED_METRICS_IPS` gesetzt sein; der Zugriff erfordert sowohl einen gültigen Bearer-Token als auch eine freigegebene IP-Adresse.
 
+Die bestehenden Gesamtmetriken bleiben erhalten. Zusätzlich werden die Preisabfragen nach `endpoint="tagesbestpreis"`, `"recon"` und `"fahrplan"` aufgeschlüsselt:
+
+| Metrik | Bedeutung |
+| --- | --- |
+| `bahn_api_requests_by_endpoint_total{endpoint,status}` | Ausgeführte Versuche je Endpunkt und HTTP-Status |
+| `bahn_api_response_time_by_endpoint_ms{endpoint}` | Histogramm der Dauer je Versuch bis zur HTTP-Antwort oder zum Verbindungsfehler, ohne Queue-Wartezeit |
+| `bahn_api_rate_limits_by_endpoint_total{endpoint}` | HTTP-429-Antworten je Endpunkt |
+| `bahn_api_network_errors_total{endpoint}` | Fehlgeschlagene Verbindungsversuche ohne HTTP-Antwort, einschließlich Timeouts |
+| `flexpreis_cache_hits_total{kind}` / `flexpreis_cache_misses_total{kind}` | Tatsächliche Cache-Nutzung für `kind="offer"` oder `"timetable"` |
+
+Jeder ausgeführte Versuch zählt genau einmal, auch bei Wiederholungen nach HTTP 429. Netzwerkfehler erhalten in den Statuszählern den Wert `status="network_error"`, keinen erfundenen HTTP-500-Status. Die Endpunktmetriken sind separate Reihen; sie werden nicht zu den Gesamtmetriken addiert. Flexpreis-Cache-Zugriffe fließen auch in `cache_hits_total` beziehungsweise `cache_misses_total` ein. Reine Cache-Prüfungen für Fortschrittsschätzungen und zusammengeführte parallele Angebotsabfragen erhöhen diese Zähler nicht. Stationsabfragen behalten ihre eigenen `station_search_*`-Metriken.
+
 ## Technischer Überblick
 
 - Next.js 16, React 19 und TypeScript

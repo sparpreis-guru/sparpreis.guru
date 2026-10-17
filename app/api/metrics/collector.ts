@@ -20,6 +20,7 @@ interface Histogram {
 }
 
 type MetricLabels = Record<string, string>
+type BahnApiEndpoint = 'tagesbestpreis' | 'recon' | 'fahrplan'
 
 interface LabeledMetric<T> {
   labels: MetricLabels
@@ -222,14 +223,40 @@ class MetricsCollector {
   }
 
   // Specific business metric methods
-  recordBahnApiRequest(responseTimeMs: number, statusCode: number) {
+  recordBahnApiRequest(responseTimeMs: number, statusCode: number | 'network_error', endpoint: BahnApiEndpoint = 'tagesbestpreis') {
     this.incrementCounter('bahn_api_requests_total')
     this.incrementCounter('bahn_api_requests_by_status_total', 1, { status: String(statusCode) })
+    this.incrementCounter('bahn_api_requests_by_endpoint_total', 1, { endpoint, status: String(statusCode) })
     this.observeHistogram('bahn_api_response_time_ms', responseTimeMs)
+    this.observeHistogram('bahn_api_response_time_by_endpoint_ms', responseTimeMs, { endpoint })
     
     if (statusCode === 429) {
       this.incrementCounter('bahn_api_rate_limits_total')
+      this.incrementCounter('bahn_api_rate_limits_by_endpoint_total', 1, { endpoint })
     }
+    if (statusCode === 'network_error') {
+      this.incrementCounter('bahn_api_network_errors_total', 1, { endpoint })
+    }
+  }
+
+  /** Measure each executed HTTP attempt, excluding queue time and cache probes. */
+  async measureBahnApiRequest<T extends { status: number }>(endpoint: BahnApiEndpoint, request: () => Promise<T>): Promise<T> {
+    const startedAt = Date.now()
+    let response: T
+    try {
+      response = await request()
+    } catch (error) {
+      this.recordBahnApiRequest(Date.now() - startedAt, 'network_error', endpoint)
+      throw error
+    }
+    this.recordBahnApiRequest(Date.now() - startedAt, response.status, endpoint)
+    return response
+  }
+
+  recordFlexpreisCacheLookup(kind: 'offer' | 'timetable', hit: boolean) {
+    if (hit) this.recordCacheHit('connection')
+    else this.recordCacheMiss('connection')
+    this.incrementCounter(hit ? 'flexpreis_cache_hits_total' : 'flexpreis_cache_misses_total', 1, { kind })
   }
 
   recordUserSearch(daysSearched: number, cachedDays: number = 0, uncachedDays: number = 0) {

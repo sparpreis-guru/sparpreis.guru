@@ -376,7 +376,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   }
 
   const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
-  const apiCallStartTime = Date.now()
 
   try {
     // API-Call über globalen Rate Limiter
@@ -391,7 +390,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         requestId,
       })
       // Match the working curl headers exactly
-      const response = await fetchBahn("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
+      const response = await metricsCollector.measureBahnApiRequest('tagesbestpreis', () => fetchBahn("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -403,7 +402,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           Connection: "close",
         },
         body: JSON.stringify(requestBody),
-      })
+      }))
 
       if (!response.ok) {
         let errorText = ""
@@ -432,17 +431,9 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
             })
           }
         }
-        // Record failed API request
-        const apiDuration = Date.now() - apiCallStartTime
-        metricsCollector.recordBahnApiRequest(apiDuration, response.status)
-        
         // Return sentinel instead of throwing to keep logs clean; rate limiter interprets this
         return { __httpStatus: response.status, __errorText: errorText.slice(0, 100) }
       }
-
-      // Record successful API request
-      const apiDuration = Date.now() - apiCallStartTime
-      metricsCollector.recordBahnApiRequest(apiDuration, response.status)
 
       return await response.text()
     }, sessionId)
@@ -757,7 +748,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           error: error.message,
         })
       } else {
-        metricsCollector.recordBahnApiRequest(Date.now() - apiCallStartTime, 500)
         logError(LOG_SCOPE, "Bahn price API request failed", error, routeContext(config, tag))
       }
       const result = {
