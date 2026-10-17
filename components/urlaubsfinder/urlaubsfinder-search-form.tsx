@@ -15,7 +15,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { AlertTriangle, MapPin, Calendar, Ticket } from "lucide-react"
+import { AlertTriangle, Check, Minus, MapPin, Calendar, Search } from "lucide-react"
+import { handleStationSuggestionKeyDown } from "@/components/search/station-suggestion-navigation"
 import { ICE_STATIONS, getDefaultStations } from "@/lib/stations/ice-stations"
 import { logError } from "@/lib/shared/logger"
 import { addDaysToDateKey } from "@/lib/shared/berlin-date"
@@ -86,6 +87,14 @@ const CURATED_SMALL_CITIES_PRESET = [
   "Potsdam Hbf",
 ]
 
+const DESTINATION_PRESETS = [
+  { label: "Großstädte", names: ICE_STATIONS.filter(s => s.isDefault).map(s => s.name) },
+  { label: "Kleinere Städte", names: CURATED_SMALL_CITIES_PRESET.filter(name => ICE_STATIONS.some(s => s.name === name)) },
+  { label: "Europäische Ziele", names: ICE_STATIONS.filter(s => s.region === "Europa").map(s => s.name) },
+]
+
+const destinationActionClass = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+
 function normalizeDiscount(art: string, klasse: string): { art: string; klasse: string } {
   const normalizedArt =
     art === "BAHNCARD_25" ? "BAHNCARD25" :
@@ -154,6 +163,7 @@ export function UrlauberfinderSearchForm({
   const [homeSuggestions, setHomeSuggestions] = useState<StationSuggestion[]>([])
   const [showHomeSuggestions, setShowHomeSuggestions] = useState(false)
   const [loadingHome, setLoadingHome] = useState(false)
+  const [activeHomeSuggestionIndex, setActiveHomeSuggestionIndex] = useState(-1)
   const [homeError, setHomeError] = useState<string | null>(null)
 
   // Destinations
@@ -219,7 +229,17 @@ export function UrlauberfinderSearchForm({
     )
   ).sort((a, b) => a.localeCompare(b, "de"))
 
+  const destinationGroups = [
+    { label: "Großstädte", stations: ICE_STATIONS.filter(s => s.isDefault) },
+    { label: "Europäische Ziele", stations: ICE_STATIONS.filter(s => s.region === "Europa") },
+    ...germanRegionsSorted.map(region => ({
+      label: region,
+      stations: ICE_STATIONS.filter(s => !s.isDefault && s.region === region),
+    })),
+  ]
+
   const homeInputRef = useRef<HTMLInputElement>(null)
+  const destinationsRef = useRef<HTMLDivElement>(null)
   const homeSuggestionsRef = useRef<HTMLDivElement>(null)
   const homeDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
@@ -235,6 +255,7 @@ export function UrlauberfinderSearchForm({
 
     try {
       setLoadingHome(true)
+      setShowHomeSuggestions(true)
       setHomeError(null)
 
       const response = await fetch(`/api/station-search?q=${encodeURIComponent(query)}`)
@@ -260,6 +281,7 @@ export function UrlauberfinderSearchForm({
       const data = await response.json()
       if (data.results) {
         setHomeSuggestions(data.results)
+        setActiveHomeSuggestionIndex(-1)
         setShowHomeSuggestions(true)
       }
     } catch (error) {
@@ -275,6 +297,9 @@ export function UrlauberfinderSearchForm({
     (value: string) => {
       setHomeStation(value)
       setHomeStationId("")
+      setActiveHomeSuggestionIndex(-1)
+      setHomeSuggestions([])
+      setShowHomeSuggestions(false)
 
       if (homeDebounceRef.current) {
         clearTimeout(homeDebounceRef.current)
@@ -305,6 +330,7 @@ export function UrlauberfinderSearchForm({
     recordStationSelection(homeStation, suggestion)
     setHomeStation(suggestion.name)
     setHomeStationId(suggestion.extId)
+    setActiveHomeSuggestionIndex(-1)
     setShowHomeSuggestions(false)
   }, [homeStation, recordStationSelection])
 
@@ -317,6 +343,7 @@ export function UrlauberfinderSearchForm({
         !homeSuggestionsRef.current.contains(event.target as Node)
       ) {
         setShowHomeSuggestions(false)
+        setActiveHomeSuggestionIndex(-1)
       }
     }
 
@@ -494,12 +521,12 @@ export function UrlauberfinderSearchForm({
     }
 
     if (!homeStation.trim() && !homeStationId) {
-      setHomeError("Bitte wähle einen Heimatbahnhof aus")
+      setHomeError("Bitte wähle einen Startbahnhof aus")
       return
     }
 
     if (selectedDestinations.length === 0) {
-      alert("Bitte wähle mindestens ein Ziel aus")
+      destinationsRef.current?.focus()
       return
     }
 
@@ -573,14 +600,11 @@ export function UrlauberfinderSearchForm({
         <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
           <h3 className="text-md font-semibold text-gray-700 mb-2 sm:mb-3 flex items-center gap-2">
             <MapPin className="w-4 h-4 text-blue-600" />
-            Heimatbahnhof
+            Startbahnhof
           </h3>
           <div className="relative">
             <Label htmlFor="homeStation" className="text-sm font-medium text-gray-600 mb-2 block">
-              <span className="inline-flex items-center gap-1">
-                <MapPin className="w-4 h-4 text-blue-500" />
-                Von wo startest du?
-              </span>
+              Von wo startest du?
             </Label>
             <Input
               ref={homeInputRef}
@@ -590,21 +614,41 @@ export function UrlauberfinderSearchForm({
               value={homeStation}
               onChange={e => handleHomeInput(e.target.value)}
               onFocus={() => homeStation.length >= 2 && setShowHomeSuggestions(true)}
+              onKeyDown={event => handleStationSuggestionKeyDown({
+                event,
+                suggestions: homeSuggestions,
+                open: showHomeSuggestions,
+                activeIndex: activeHomeSuggestionIndex,
+                onOpenChange: setShowHomeSuggestions,
+                onActiveIndexChange: setActiveHomeSuggestionIndex,
+                onSelect: selectHomeSuggestion,
+                getOptionId: index => `home-suggestion-${index}`,
+              })}
               required
               className={ctrl}
               autoComplete="off"
+              role="combobox"
+              aria-autocomplete="list"
+              aria-expanded={showHomeSuggestions}
+              aria-controls="home-suggestions"
+              aria-activedescendant={showHomeSuggestions && activeHomeSuggestionIndex >= 0 ? `home-suggestion-${activeHomeSuggestionIndex}` : undefined}
+              aria-describedby={homeError ? "home-station-error" : undefined}
             />
             {homeError && (
-              <div className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
+              <div id="home-station-error" role="alert" className="absolute z-50 w-full mt-1 bg-amber-50 border border-amber-300 rounded-md shadow-sm p-2">
                 <p className="text-xs text-amber-800 flex items-center gap-1">
                   <AlertTriangle className="w-3 h-3" />
                   {homeError}
                 </p>
               </div>
             )}
-            {showHomeSuggestions && homeSuggestions.length > 0 && (
+            {showHomeSuggestions && (
               <div
                 ref={homeSuggestionsRef}
+                id="home-suggestions"
+                role="listbox"
+                aria-label="Bahnhofsvorschläge"
+                aria-busy={loadingHome}
                 className="absolute z-50 w-full mt-1 bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto"
               >
                 {loadingHome && (
@@ -613,12 +657,21 @@ export function UrlauberfinderSearchForm({
                     Lädt...
                   </div>
                 )}
-                {homeSuggestions.map(suggestion => (
+                {!loadingHome && homeSuggestions.length === 0 && (
+                  <p role="status" className="p-3 text-sm text-gray-600">Keine Bahnhöfe gefunden. Bitte prüfe den Namen.</p>
+                )}
+                {homeSuggestions.map((suggestion, index) => (
                   <button
                     key={suggestion.extId}
+                    id={`home-suggestion-${index}`}
                     type="button"
+                    role="option"
+                    tabIndex={-1}
+                    aria-selected={activeHomeSuggestionIndex === index}
+                    onMouseDown={event => event.preventDefault()}
+                    onMouseEnter={() => setActiveHomeSuggestionIndex(index)}
                     onClick={() => selectHomeSuggestion(suggestion)}
-                    className="w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-b-0 text-sm"
+                    className={`min-h-11 w-full text-left px-3 py-2 hover:bg-blue-50 border-b border-gray-100 last:border-b-0 text-sm ${activeHomeSuggestionIndex === index ? "bg-blue-50 text-blue-900" : "text-gray-900"}`}
                   >
                     {suggestion.name}
                   </button>
@@ -629,179 +682,115 @@ export function UrlauberfinderSearchForm({
         </div>
 
         {/* Ziele */}
-        <div className="rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
-          <div className="flex items-center justify-between mb-2 sm:mb-3">
-            <h3 className="text-md font-semibold text-gray-700 flex items-center gap-2">
-              <MapPin className="w-4 h-4 text-blue-600" />
+        <div
+          ref={destinationsRef}
+          tabIndex={-1}
+          role="group"
+          aria-labelledby="destinations-heading"
+          aria-describedby={selectedDestinations.length === 0 ? "destinations-error" : "destinations-hint"}
+          className="rounded-xl border border-gray-200 bg-white p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4"
+        >
+          <div className="mb-1 flex items-center justify-between gap-2">
+            <h3 id="destinations-heading" className="text-md flex items-center gap-2 font-semibold text-gray-700">
+              <MapPin className="h-4 w-4 text-blue-600" aria-hidden="true" />
               Reiseziele
             </h3>
-            <span className="text-xs text-gray-500 font-medium">
+            <span role="status" className="text-xs font-medium text-gray-600">
               {selectedDestinations.length} ausgewählt
             </span>
           </div>
+          <p id="destinations-hint" className="mb-3 text-xs text-gray-600">
+            Welche Ziele sollen wir vergleichen? Wähle Zielgruppen oder einzelne Städte.
+          </p>
 
-          <div className="mb-3 flex flex-wrap gap-1.5">
+          <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Zielgruppen auswählen">
+            {DESTINATION_PRESETS.map(preset => {
+              const allSelected = preset.names.every(name => selectedDestinations.includes(name))
+              const partlySelected = preset.names.some(name => selectedDestinations.includes(name))
+              return (
+                <button
+                  key={preset.label}
+                  type="button"
+                  onClick={() => togglePreset(preset.names)}
+                  aria-pressed={allSelected ? true : partlySelected ? "mixed" : false}
+                  className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    allSelected || partlySelected
+                      ? "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100"
+                      : "border-gray-300 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
+                  }`}
+                >
+                  {partlySelected
+                    ? allSelected
+                      ? <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      : <Minus className="h-3.5 w-3.5" aria-hidden="true" />
+                    : null}
+                  {`${preset.label} ${allSelected ? "abwählen" : "wählen"}`}
+                </button>
+              )
+            })}
+          </div>
+          <div className="mb-3 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => togglePreset(ICE_STATIONS.filter(s => s.isDefault).map(s => s.name))}
-              className="rounded-full border border-blue-300 bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+              onClick={() => setSelectedDestinations(ICE_STATIONS.map(s => s.name))}
+              disabled={selectedDestinations.length === ICE_STATIONS.length}
+              className={destinationActionClass}
             >
-              🏙️ Großstädte
-            </button>
-            <button
-              type="button"
-              onClick={() => togglePreset(CURATED_SMALL_CITIES_PRESET.filter(name => ICE_STATIONS.some(s => s.name === name)))}
-              className="rounded-full border border-emerald-300 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700 transition-colors hover:bg-emerald-100"
-            >
-              🌳 Kleinere Städte (Empfehlung)
-            </button>
-            <button
-              type="button"
-              onClick={() => togglePreset(ICE_STATIONS.filter(s => s.region === "Europa").map(s => s.name))}
-              className="rounded-full border border-purple-300 bg-purple-50 px-2.5 py-1 text-xs font-medium text-purple-700 transition-colors hover:bg-purple-100"
-            >
-              🌍 Europäische Ziele
-            </button>
-            <button
-              type="button"
-              onClick={() => togglePreset(ICE_STATIONS.map(s => s.name))}
-              className="rounded-full border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100"
-            >
-              ✓ Alle Ziele
+              Alle Ziele auswählen
             </button>
             <button
               type="button"
               onClick={() => setSelectedDestinations([])}
-              className="rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-600 transition-colors hover:bg-red-100"
+              disabled={selectedDestinations.length === 0}
+              className={destinationActionClass}
             >
-              ✕ Auswahl leeren
+              Auswahl leeren
             </button>
           </div>
+          {selectedDestinations.length === 0 && (
+            <p id="destinations-error" role="alert" className="mb-3 flex items-start gap-2 text-sm text-red-700">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+              Bitte wähle mindestens ein Reiseziel aus.
+            </p>
+          )}
 
-          <div className="space-y-4 max-h-[340px] overflow-y-auto pr-1">
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-gray-500">🏙️ Großstädte</h4>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const names = ICE_STATIONS.filter(s => s.isDefault).map(s => s.name)
-                    const allSelected = names.every(n => selectedDestinations.includes(n))
-                    if (allSelected) setSelectedDestinations(prev => prev.filter(n => !names.includes(n)))
-                    else setSelectedDestinations(prev => [...new Set([...prev, ...names])])
-                  }}
-                  className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold"
-                >
-                  {ICE_STATIONS.filter(s => s.isDefault).every(s => selectedDestinations.includes(s.name))
-                    ? "Auswahl leeren"
-                    : "Alle wählen"}
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ICE_STATIONS.filter(s => s.isDefault).map(station => {
-                  const checked = selectedDestinations.includes(station.name)
-                  return (
-                    <button
-                      key={station.name}
-                      type="button"
-                      onClick={() => {
-                        if (checked) setSelectedDestinations(prev => prev.filter(n => n !== station.name))
-                        else setSelectedDestinations(prev => [...prev, station.name])
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
-                        checked
-                          ? "bg-blue-600 text-white border-blue-600"
-                          : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600"
-                      }`}
-                    >
-                      {station.displayName.replace(" Hauptbahnhof", "")}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-purple-500">🌍 Europäische Ziele</h4>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const names = ICE_STATIONS.filter(s => s.region === "Europa").map(s => s.name)
-                    const allSelected = names.every(n => selectedDestinations.includes(n))
-                    if (allSelected) setSelectedDestinations(prev => prev.filter(n => !names.includes(n)))
-                    else setSelectedDestinations(prev => [...new Set([...prev, ...names])])
-                  }}
-                  className="text-[10px] font-semibold text-blue-600 hover:text-blue-800"
-                >
-                  {ICE_STATIONS.filter(s => s.region === "Europa").every(s => selectedDestinations.includes(s.name))
-                    ? "Auswahl leeren"
-                    : "Alle wählen"}
-                </button>
-              </div>
-              <div className="flex flex-wrap gap-1.5">
-                {ICE_STATIONS.filter(s => s.region === "Europa").map(station => {
-                  const checked = selectedDestinations.includes(station.name)
-                  return (
-                    <button
-                      key={station.name}
-                      type="button"
-                      onClick={() => {
-                        if (checked) setSelectedDestinations(prev => prev.filter(n => n !== station.name))
-                        else setSelectedDestinations(prev => [...prev, station.name])
-                      }}
-                      className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
-                        checked
-                          ? "border-blue-600 bg-blue-600 text-white"
-                          : "border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600"
-                      }`}
-                    >
-                      {station.displayName}
-                    </button>
-                  )
-                })}
-              </div>
-            </div>
-
-            {germanRegionsSorted.map(region => {
-              const stations = ICE_STATIONS.filter(s => !s.isDefault && s.region === region)
-              if (stations.length === 0) return null
+          <div className="max-h-[340px] space-y-4 overflow-y-auto pr-1" role="group" aria-label="Einzelne Reiseziele auswählen">
+            {destinationGroups.map((group, index) => {
+              const names = group.stations.map(station => station.name)
+              const allSelected = names.every(name => selectedDestinations.includes(name))
               return (
-                <div key={region}>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <h4 className="text-xs font-bold uppercase text-gray-500">{region}</h4>
+                <div key={group.label} role="group" aria-labelledby={`destination-group-${index}`}>
+                  <div className="mb-1.5 flex items-center justify-between gap-2">
+                    <h4 id={`destination-group-${index}`} className="text-xs font-semibold text-gray-600">{group.label}</h4>
                     <button
                       type="button"
-                      onClick={() => {
-                        const names = stations.map(s => s.name)
-                        const allSelected = names.every(n => selectedDestinations.includes(n))
-                        if (allSelected) setSelectedDestinations(prev => prev.filter(n => !names.includes(n)))
-                        else setSelectedDestinations(prev => [...new Set([...prev, ...names])])
-                      }}
-                      className="text-[10px] text-blue-600 hover:text-blue-800 font-semibold"
+                      onClick={() => togglePreset(names)}
+                      className={destinationActionClass}
+                      aria-label={`${group.label}: ${allSelected ? "alle abwählen" : "alle auswählen"}`}
                     >
-                      {stations.every(s => selectedDestinations.includes(s.name))
-                        ? "Auswahl leeren"
-                        : "Alle wählen"}
+                      {allSelected ? "Alle abwählen" : "Alle wählen"}
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {stations.map(station => {
+                  <div className="flex flex-wrap gap-2">
+                    {group.stations.map(station => {
                       const checked = selectedDestinations.includes(station.name)
                       return (
                         <button
                           key={station.name}
                           type="button"
-                          onClick={() => {
-                            if (checked) setSelectedDestinations(prev => prev.filter(n => n !== station.name))
-                            else setSelectedDestinations(prev => [...prev, station.name])
-                          }}
-                          className={`text-xs px-2.5 py-1 rounded-full border font-medium transition-all ${
+                          aria-pressed={checked}
+                          onClick={() => setSelectedDestinations(prev =>
+                            prev.includes(station.name)
+                              ? prev.filter(name => name !== station.name)
+                              : [...prev, station.name]
+                          )}
+                          className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                             checked
-                              ? "bg-blue-600 text-white border-blue-600"
-                              : "bg-white text-gray-600 border-gray-300 hover:border-blue-400 hover:text-blue-600"
+                              ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
+                              : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700"
                           }`}
                         >
+                          <Check className={`h-3.5 w-3.5 shrink-0 ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
                           {station.displayName.replace(" Hauptbahnhof", "")}
                         </button>
                       )
@@ -811,6 +800,7 @@ export function UrlauberfinderSearchForm({
               )
             })}
           </div>
+          <p className="mt-2 text-xs text-gray-500">Weitere Ziele findest du durch Scrollen in der Liste.</p>
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">
@@ -819,7 +809,7 @@ export function UrlauberfinderSearchForm({
             <div className="grid grid-cols-2 rounded-lg bg-gray-200/70 p-1" role="group" aria-label="Reiseart wählen">
               <button
                 type="button"
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`min-h-11 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   !includeReturnDate ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
                 }`}
                 onClick={() => setIncludeReturnDate(false)}
@@ -829,7 +819,7 @@ export function UrlauberfinderSearchForm({
               </button>
               <button
                 type="button"
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${
+                className={`min-h-11 rounded-md px-3 py-2 text-sm font-semibold transition ${
                   includeReturnDate ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
                 }`}
                 onClick={() => setIncludeReturnDate(true)}
@@ -943,9 +933,9 @@ export function UrlauberfinderSearchForm({
         <div className="sticky bottom-2 z-30 rounded-xl border border-gray-200 bg-white/95 p-2 shadow-lg backdrop-blur sm:static sm:border-0 sm:bg-transparent sm:p-0 sm:shadow-none">
           <Button
             type="submit"
-            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
+            className="h-auto min-h-11 w-full whitespace-normal rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 sm:px-6"
           >
-            <Ticket className="mr-2 h-4 w-4" />
+            <Search className="h-4 w-4" aria-hidden="true" />
             {isSearching ? "Neue Suche starten" : "Günstige Ziele finden"}
           </Button>
         </div>

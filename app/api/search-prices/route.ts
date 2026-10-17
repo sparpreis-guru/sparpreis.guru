@@ -7,7 +7,7 @@ import { recommendBestPrice } from '@/lib/train-search/recommendation-engine'
 import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
-import { getFeasibleReturnSearchDates } from '@/lib/search/return-search-feasibility'
+import { getFeasibleReturnSearchDates, getEligibleDateKeys } from '@/lib/search/return-search-feasibility'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -1071,18 +1071,5 @@ function calculateDatesFromWeekdays(
   endDate: string,
   weekdays: number[]
 ): string[] {
-  const dates: string[] = []
-  const start = new Date(startDate)
-  const end = new Date(endDate)
-  
-  for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    if (weekdays.includes(d.getDay())) {
-      const year = d.getFullYear()
-      const month = (d.getMonth() + 1).toString().padStart(2, "0")
-      const day = d.getDate().toString().padStart(2, "0")
-      dates.push(`${year}-${month}-${day}`)
-    }
-  }
-  
-  return dates
+  return getEligibleDateKeys(startDate, endDate, weekdays)
 }
