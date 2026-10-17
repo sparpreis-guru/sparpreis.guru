@@ -1,6 +1,6 @@
 {
   "name": "sparpreis.guru",
-  "version": "2.3.2",
+  "version": "2.4.0",
   "private": true,
   "engines": {
     "node": ">=22.19.0"
