@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.2...v2.4.0) (2026-10-17)
+
+
+### Features
+
+* **flexpreis:** add journey-based price comparison ([#79](https://github.com/sparpreis-guru/sparpreis.guru/issues/79)) ([2047a88](https://github.com/sparpreis-guru/sparpreis.guru/commit/2047a8874f6a4397d1b141c112405392b731c49c))
+* **metrics:** track Bahn requests by endpoint ([30fa4dd](https://github.com/sparpreis-guru/sparpreis.guru/commit/30fa4dd5b6feb6cc27f19a15c7d811567ac576ac))
+
+
+### Bug Fixes
+
+* **search:** improve forms and Berlin date filters ([77d177d](https://github.com/sparpreis-guru/sparpreis.guru/commit/77d177d4c7d27d01699461c15f1d473448966b41))
+
 ## [2.3.2](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.1...v2.3.2) (2026-09-11)
 
 
