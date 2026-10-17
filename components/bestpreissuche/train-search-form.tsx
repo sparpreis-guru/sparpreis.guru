@@ -21,6 +21,7 @@ import {
   ConnectionOptionsModule,
   DateTimeControlStyle,
   DirectionTimeFiltersModule,
+  FlexPriceComparisonControl,
   TravelerOptionsModule,
   dateTimeControlClass,
   searchControlClass,
@@ -136,6 +137,7 @@ interface SearchParams {
   ermaessigungArt?: string
   ermaessigungKlasse?: string
   klasse?: string
+  tarif?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
@@ -244,6 +246,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const [ermaessigungKlasse, setErmaessigungKlasse] = useState(searchParams.ermaessigungKlasse || "KLASSENLOS")
   const [klasse, setKlasse] = useState(searchParams.klasse || "KLASSE_2")
   const hasReturnSearchParams = searchParams.rueckfahrt === "1"
+  const [tarif, setTarif] = useState(
+    hasReturnSearchParams ? "SPARPREIS" : searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS"
+  )
   const [schnelleVerbindungen, setSchnelleVerbindungen] = useState(
     searchParams.schnelleVerbindungen === undefined || searchParams.schnelleVerbindungen === "1"
   )
@@ -596,6 +601,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const handleReturnModeChange = (nextActive: boolean) => {
     if (nextActive && !rueckfahrtAktiv) {
       setSelectedReturnWeekdays([...selectedWeekdays])
+      // Den nur für einfache Fahrten verfügbaren Flexpreisvergleich zurücksetzen.
+      setTarif("SPARPREIS")
     }
     setRueckfahrtAktiv(nextActive)
   }
@@ -624,6 +631,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     params.set("ermaessigungArt", ermaessigungArt)
     params.set("ermaessigungKlasse", ermaessigungKlasse)
     params.set("klasse", klasse)
+    // Nur den abweichenden Tarif in die URL schreiben, damit bestehende Links
+    // unverändert bleiben. Bei aktiver Rückfahrt gilt immer der Sparpreis.
+    if (tarif === "FLEXPREIS" && !rueckfahrtAktiv) params.set("tarif", tarif)
     if (schnelleVerbindungen) params.set("schnelleVerbindungen", "1")
     if (abfahrtAb) params.set("abfahrtAb", abfahrtAb)
     if (abfahrtBis) params.set("abfahrtBis", abfahrtBis)
@@ -688,6 +698,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     setErmaessigungArt("KEINE_ERMAESSIGUNG")
     setErmaessigungKlasse("KLASSENLOS")
     setKlasse("KLASSE_2")
+    setTarif("SPARPREIS")
     setSchnelleVerbindungen(true)
     setUmstiegsOption("alle")
     setAbfahrtAb("")
@@ -1157,6 +1168,13 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           onTravelClassChange={setKlasse}
         />
 
+        {!rueckfahrtAktiv && (
+          <FlexPriceComparisonControl
+            tarif={tarif}
+            onTarifChange={setTarif}
+          />
+        )}
+
         <ConnectionOptionsModule
           open={connectionOptionsOpen}
           onOpenChange={setConnectionOptionsOpen}
@@ -1180,7 +1198,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
               ? "Neue Suche starten"
               : rueckfahrtAktiv
                 ? "Günstigste Kombinationen suchen"
-                : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
+                : tarif === "FLEXPREIS"
+                  ? `Best- & Flexpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} vergleichen`
+                  : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
           </Button>
         </div>
 

@@ -8,6 +8,33 @@ import { Button } from "@/components/ui/button"
 import { SearchCancelButton } from "./search-cancel-button"
 import { formatEta, SearchQueueStatus } from "./search-queue-status"
 
+/** Auto-scroll only for a new search, not for an in-place comparison update. */
+export function scheduleSearchProgressScroll(
+  state: { isActive: boolean; autoScrollOnStart: boolean; hasAutoScrolled: { current: boolean } },
+  getPanel: () => Pick<HTMLElement, "scrollIntoView"> | null,
+  frames: Pick<Window, "requestAnimationFrame" | "cancelAnimationFrame">,
+): (() => void) | undefined {
+  if (!state.isActive) {
+    state.hasAutoScrolled.current = false
+    return
+  }
+  if (!state.autoScrollOnStart || state.hasAutoScrolled.current) return
+
+  let layoutFrame: number | undefined
+  const renderFrame = frames.requestAnimationFrame(() => {
+    layoutFrame = frames.requestAnimationFrame(() => {
+      const panel = getPanel()
+      if (!panel || state.hasAutoScrolled.current) return
+      state.hasAutoScrolled.current = true
+      panel.scrollIntoView({ behavior: "smooth", block: "start" })
+    })
+  })
+  return () => {
+    frames.cancelAnimationFrame(renderFrame)
+    if (layoutFrame !== undefined) frames.cancelAnimationFrame(layoutFrame)
+  }
+}
+
 function formatElapsedTime(seconds: number | null): string {
   if (seconds === null) return "nicht erfasst"
   if (seconds < 1) return "< 1 Sek."
@@ -25,6 +52,7 @@ function formatElapsedTime(seconds: number | null): string {
 }
 
 interface SearchProgressPanelProps {
+  autoScrollOnStart?: boolean
   isActive: boolean
   completedItems: number
   totalItems: number
@@ -38,6 +66,7 @@ interface SearchProgressPanelProps {
 }
 
 export function SearchProgressPanel({
+  autoScrollOnStart = true,
   isActive,
   completedItems,
   totalItems,
@@ -65,25 +94,12 @@ export function SearchProgressPanel({
   const state = isActive ? "active" : isCancelled ? "cancelled" : "completed"
 
   useEffect(() => {
-    if (!isActive) {
-      hasAutoScrolledRef.current = false
-      return
-    }
-    if (hasAutoScrolledRef.current) return
-
-    let layoutFrame: number | undefined
-    const renderFrame = window.requestAnimationFrame(() => {
-      layoutFrame = window.requestAnimationFrame(() => {
-        if (!panelRef.current || hasAutoScrolledRef.current) return
-        hasAutoScrolledRef.current = true
-        panelRef.current.scrollIntoView({ behavior: "smooth", block: "start" })
-      })
-    })
-    return () => {
-      window.cancelAnimationFrame(renderFrame)
-      if (layoutFrame !== undefined) window.cancelAnimationFrame(layoutFrame)
-    }
-  }, [isActive])
+    return scheduleSearchProgressScroll(
+      { isActive, autoScrollOnStart, hasAutoScrolled: hasAutoScrolledRef },
+      () => panelRef.current,
+      window,
+    )
+  }, [isActive, autoScrollOnStart])
 
   useEffect(() => {
     if (!isActive) {

@@ -20,7 +20,10 @@ export async function updateProgress(
   avgUncachedTime?: number,
   avgCachedTime?: number,
   queueSize?: number,
-  activeRequests?: number
+  activeRequests?: number,
+  remainingRateLimitedRequests?: number,
+  remainingTagesbestpreisRequests?: number,
+  remainingReconRequests?: number
 ) {
   try {
     // Use absolute URL for server-side fetch
@@ -40,6 +43,9 @@ export async function updateProgress(
         averageCachedResponseTime: avgCachedTime,
         queueSize,
         activeRequests,
+        remainingRateLimitedRequests,
+        remainingTagesbestpreisRequests,
+        remainingReconRequests,
       }),
     })
   } catch (error) {

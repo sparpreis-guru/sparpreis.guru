@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Calendar, ChevronLeft, ChevronRight } from "lucide-react"
 import { recommendOne } from "@/lib/train-search/recommendation-engine"
-import { AnimatePresence, motion } from "framer-motion"
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion"
 import {
   createBookingLink,
   getDurationMinutes
@@ -16,6 +16,8 @@ import { PriceHistoryChart, type PriceHistoryEntry } from "./price-history-chart
 import { logWarn } from "@/lib/shared/logger"
 import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
 import { OneWayJourneySummaryPlaceholder } from "@/components/search/journey-result"
+import { FlexpreisDayComparison } from "./flexpreis-day-comparison"
+import type { FlexpreisComparison, FlexpreisDayData } from "@/lib/search/flexpreis-comparison"
 
 const LOG_SCOPE = "bestpreissuche.day-details"
 
@@ -32,6 +34,7 @@ interface IntervalData {
 }
 
 interface PriceData {
+  flexpreis?: FlexpreisDayData
   preis: number
   info: string
   abfahrtsZeitpunkt: string
@@ -41,6 +44,13 @@ interface PriceData {
 }
 
 interface DayDetailsPanelProps {
+  flexComparison?: FlexpreisComparison
+  onFlexBasisChange?: (id: string) => void
+  isFlexBasisLoading?: boolean
+  onCheckFlexpreise?: (date: string) => void
+  isCheckingFlexpreise?: boolean
+  isFlexpreisPending?: boolean
+  flexLookupError?: string
   date: string | null
   data: PriceData | null
   startStation?: { name: string; id: string }
@@ -70,6 +80,9 @@ const variants = {
 }
 
 export function DayDetailsPanel({
+  flexComparison,
+  onFlexBasisChange,
+  isFlexBasisLoading = false,
   date,
   data,
   startStation,
@@ -78,7 +91,12 @@ export function DayDetailsPanel({
   onNavigateDay,
   dayKeys = [],
   isLoading = false,
+  onCheckFlexpreise,
+  isCheckingFlexpreise = false,
+  isFlexpreisPending = false,
+  flexLookupError,
 }: DayDetailsPanelProps) {
+  const reducedMotion = useReducedMotion()
   const [showOnlyCheapest, setShowOnlyCheapest] = useState(false)
   const [sortKey, setSortKey] = useState<'preis' | 'abfahrt' | 'ankunft' | 'umstiege' | 'dauer'>('preis')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
@@ -254,6 +272,7 @@ export function DayDetailsPanel({
   const recommendation = intervals.length > 0 ? recommendOne(intervals) : null
   const recommendedTrip = recommendation?.trip
   const intervalPriceScale = createPriceBandScale(intervals.map((interval) => interval.preis))
+  const isFlexpreisComparison = searchParams?.tarif === "FLEXPREIS"
 
   const getIntervalPriceColor = (price: number) => {
     const style = PRICE_BAND_STYLES[intervalPriceScale.getBand(price)]
@@ -330,7 +349,7 @@ export function DayDetailsPanel({
         </div>
       </header>
 
-      {data.priceHistory && data.priceHistory.length > 1 && (
+      {!isFlexpreisComparison && data.priceHistory && data.priceHistory.length > 1 && (
         <div key={date} className="border-b border-gray-200 bg-white p-3 sm:p-4">
           <PriceHistoryChart history={data.priceHistory} title="Preisentwicklung für diesen Tag" />
         </div>
@@ -342,13 +361,27 @@ export function DayDetailsPanel({
             <motion.div
               key={date}
               custom={direction}
-              variants={variants}
+              variants={reducedMotion ? { enter: { x: 0, opacity: 1 }, center: { x: 0, opacity: 1 }, exit: { x: 0, opacity: 1 } } : variants}
               initial="enter"
               animate="center"
               exit="exit"
-              transition={{ duration: 0.25 }}
-              className="w-full"
+              transition={{ duration: reducedMotion ? 0 : 0.25 }}
+              className={isFlexpreisComparison ? "w-full space-y-4 bg-slate-100 p-3 sm:p-4" : "w-full"}
             >
+                {isFlexpreisComparison && (
+                  <>
+                    <FlexpreisDayComparison
+                      comparison={flexComparison}
+                      onBasisChange={onFlexBasisChange}
+                      isBasisLoading={isFlexBasisLoading}
+                      data={data.flexpreis}
+                      onCheckMore={onCheckFlexpreise ? () => onCheckFlexpreise(date) : undefined}
+                      isChecking={isCheckingFlexpreise}
+                      isPending={isFlexpreisPending}
+                      error={flexLookupError}
+                    />
+                  </>
+                )}
                 <ConnectionsTable
                   embedded
                   intervals={intervals}
@@ -374,6 +407,12 @@ export function DayDetailsPanel({
           </AnimatePresence>
         </div>
       </div>
+
+      {isFlexpreisComparison && data.priceHistory && data.priceHistory.length > 1 && (
+        <div key={date} className="border-t border-gray-200 bg-white p-3 sm:p-4">
+          <PriceHistoryChart history={data.priceHistory} title="Preisentwicklung der Bestpreise" />
+        </div>
+      )}
     </section>
   )
 }

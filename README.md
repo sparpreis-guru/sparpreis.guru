@@ -4,7 +4,7 @@
 
 ## Funktionen
 
-- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung.
+- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung. Für einfache Fahrten lassen sich zusätzlich tatsächlich abgefragte Flexpreise auf einem festen Vergleichsreiseweg vergleichen. Weitere Angebote werden auf Wunsch in den Tagesdetails geprüft; eine vollständige Preisübersicht oder tarifliche Streckengültigkeit wird nicht zugesichert.
 - **Flexible Hin- und Rückfahrt:** Kombiniert günstige Fahrten anhand der gewünschten Aufenthaltsdauer. Ergebnisse erscheinen als Preismatrix und sortierbare Liste mit Gesamtpreis, Reisedauer und Hinweisen auf reine Direktverbindungen.
 - **Klassikmodus:** Eine kompakte Kalenderansicht im Stil des ursprünglichen [bahn.guru](https://github.com/juliuste/bahn.guru), erreichbar unter `/klassik`.
 - **Urlaubsfinder:** Sucht ab einem Startbahnhof parallel nach günstigen Zielen – optional mit Rückfahrt – und stellt die Treffer als Liste und auf einer Karte dar.
@@ -65,6 +65,8 @@ pnpm build:direct-connections
 | `METRICS_API_KEY` | – | Aktiviert und schützt den Metrics-Endpunkt per Bearer-Token |
 | `ALLOWED_METRICS_IPS` | – | Erlaubte IP-Adressen oder CIDR-Netze, durch Kommas getrennt |
 | `LOG_LEVEL` | – | Aktiviert mit `debug` zusätzliche strukturierte Logs |
+
+`tagesbestpreis` und `recon` werden in getrennten Rate-Limitern verarbeitet. Die vorhandenen `RL_*`-Variablen konfigurieren den Tagesbestpreis-Limiter; für `recon` können dieselben Suffixe mit `RECON_RL_*` separat gesetzt werden, beispielsweise `RECON_RL_ROLLING_LIMIT_COUNT`. Ohne eigenen Wert übernimmt der recon-Limiter die entsprechende `RL_*`-Einstellung. Standardmäßig gelten für beide Budgets jeweils 30 Starts pro 60 Sekunden.
 
 ## Monitoring
 

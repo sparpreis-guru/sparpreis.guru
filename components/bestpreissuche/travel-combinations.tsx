@@ -32,6 +32,7 @@ import {
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { cn } from "@/lib/utils"
+import { formatPrice } from "@/lib/shared/format-price"
 import { calculateDuration, createBookingLink, getDurationMinutes } from "@/lib/train-search/day-details-utils"
 import { ConnectionsTable } from "./day-connections-table"
 import { DayDetailsPanel } from "./day-details-panel"
@@ -245,13 +246,6 @@ function formatFullDate(value?: string) {
 function formatTime(value: string) {
   if (!value) return "--:--"
   return new Date(value).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
-}
-
-function formatPrice(value: number) {
-  return `${value.toLocaleString("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} €`
 }
 
 function formatNightCount(value: number) {
@@ -2935,7 +2929,7 @@ export function TravelCombinations({
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: Boolean(isStreaming && completedDays < totalDays),
-    remainingRequests: Math.max(0, totalDays - completedDays),
+    remainingRateLimitedRequests: Math.max(0, totalDays - completedDays),
     searchType: "bestpreissuche",
   })
 

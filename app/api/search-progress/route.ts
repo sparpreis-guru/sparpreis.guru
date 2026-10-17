@@ -1,5 +1,10 @@
 import { NextRequest, NextResponse } from "next/server"
-import { globalRateLimiter } from "@/app/api/search-prices/rate-limiter"
+import {
+  cancelBestpreisSearchSession,
+  globalRateLimiter,
+  isBestpreisSearchSessionCancelled,
+  reconRateLimiter,
+} from "@/app/api/search-prices/rate-limiter"
 import { estimateSearchEtaSeconds } from "@/lib/search/search-eta"
 import {
   recordSearchEtaEstimate,
@@ -16,6 +21,9 @@ interface SearchProgressData {
   isComplete: boolean
   uncachedDays?: number
   cachedDays?: number
+  remainingRateLimitedRequests?: number
+  remainingTagesbestpreisRequests?: number
+  remainingReconRequests?: number
   averageUncachedResponseTime?: number
   averageCachedResponseTime?: number
   queueSize?: number
@@ -29,7 +37,8 @@ const progressStorage = new Map<string, SearchProgressData>()
 
 interface RemainingWork {
   total: number
-  uncached: number
+  tagesbestpreis: number
+  recon: number
   cached: number
 }
 
@@ -54,43 +63,59 @@ function parseSearchType(url: URL): SearchEtaType {
 function getRemainingWork(
   url: URL,
   progressData: SearchProgressData | undefined,
-  queueStatus: ReturnType<typeof globalRateLimiter.getQueueStatus>
+  tagesbestpreisQueue: ReturnType<typeof globalRateLimiter.getQueueStatus>,
+  reconQueue: ReturnType<typeof reconRateLimiter.getQueueStatus>
 ): RemainingWork {
   const requestedRemaining = parseRequestedRemainingRequests(url)
-  const liveSessionRequests = queueStatus.sessionQueueSize + queueStatus.sessionActiveRequests
-  const progressRemaining = progressData
-    ? Math.max(0, progressData.totalDays - progressData.currentDay)
-    : 0
+  const liveTagesbestpreisRequests =
+    tagesbestpreisQueue.sessionQueueSize + tagesbestpreisQueue.sessionActiveRequests
+  const liveReconRequests = reconQueue.sessionQueueSize + reconQueue.sessionActiveRequests
   const progressUncached = Math.max(0, progressData?.uncachedDays || 0)
   const progressCached = Math.max(0, progressData?.cachedDays || 0)
-  const total = Math.max(
-    progressData ? progressRemaining : (requestedRemaining ?? 0),
-    liveSessionRequests
+  const reportedTagesbestpreis = Math.max(
+    0,
+    progressData?.remainingTagesbestpreisRequests ??
+      progressData?.remainingRateLimitedRequests ??
+      progressUncached
   )
-  const knownUncached = Math.min(total, Math.max(progressUncached, liveSessionRequests))
-  const knownCached = Math.min(Math.max(0, total - knownUncached), progressCached)
-  const unclassified = Math.max(0, total - knownUncached - knownCached)
+  const reportedRecon = Math.max(0, progressData?.remainingReconRequests || 0)
+  const tagesbestpreis = Math.max(
+    progressData ? reportedTagesbestpreis : (requestedRemaining ?? 0),
+    liveTagesbestpreisRequests
+  )
+  const recon = Math.max(reportedRecon, liveReconRequests)
+  const cached = progressData ? progressCached : 0
 
   return {
-    total,
-    uncached: knownUncached + unclassified,
-    cached: knownCached,
+    total: tagesbestpreis + recon + cached,
+    tagesbestpreis,
+    recon,
+    cached,
   }
 }
 
 function calculateEstimatedTimeRemaining(
   remainingWork: RemainingWork,
   progressData: SearchProgressData | undefined,
-  queueStatus: ReturnType<typeof globalRateLimiter.getQueueStatus>
+  tagesbestpreisQueue: ReturnType<typeof globalRateLimiter.getQueueStatus>,
+  reconQueue: ReturnType<typeof reconRateLimiter.getQueueStatus>
 ): number {
   if (progressData?.isComplete && remainingWork.total === 0) return 0
 
-  return estimateSearchEtaSeconds({
-    uncachedRequests: remainingWork.uncached,
+  const tagesbestpreisEta = estimateSearchEtaSeconds({
+    uncachedRequests: remainingWork.tagesbestpreis,
     cachedRequests: remainingWork.cached,
     averageCachedResponseTimeMs: progressData?.averageCachedResponseTime || 100,
-    queue: queueStatus,
+    queue: tagesbestpreisQueue,
   })
+  const reconEta = estimateSearchEtaSeconds({
+    uncachedRequests: remainingWork.recon,
+    cachedRequests: 0,
+    averageCachedResponseTimeMs: progressData?.averageCachedResponseTime || 100,
+    queue: reconQueue,
+  })
+
+  return Math.max(tagesbestpreisEta, reconEta)
 }
 
 // GET - Progress-Daten abrufen
@@ -106,25 +131,52 @@ export async function GET(request: NextRequest) {
     const progressData = progressStorage.get(sessionId)
     const requestedRemaining = parseRequestedRemainingRequests(url)
     if (!progressData?.isComplete) {
+      const remainingDays = progressData
+        ? Math.max(0, progressData.totalDays - progressData.currentDay)
+        : requestedRemaining
+      const remainingTagesbestpreisRequests = progressData
+        ? Math.max(
+            0,
+            progressData.remainingTagesbestpreisRequests ??
+              progressData.remainingRateLimitedRequests ??
+              progressData.uncachedDays ??
+              0
+          )
+        : requestedRemaining
+      const remainingReconRequests = progressData
+        ? Math.max(0, progressData.remainingReconRequests ?? 0)
+        : 0
       globalRateLimiter.heartbeatSearchSession(
         sessionId,
-        progressData
-          ? Math.max(0, progressData.totalDays - progressData.currentDay)
-          : requestedRemaining,
-        progressData
-          ? Math.max(0, progressData.uncachedDays || 0)
-          : requestedRemaining
+        remainingDays,
+        remainingTagesbestpreisRequests
       )
+      if (remainingReconRequests > 0) {
+        reconRateLimiter.heartbeatSearchSession(
+          sessionId,
+          remainingDays,
+          remainingReconRequests
+        )
+      } else {
+        reconRateLimiter.unregisterSearchSession(sessionId)
+      }
     }
     const queueStatus = globalRateLimiter.getQueueStatus(sessionId)
-    const remainingWork = getRemainingWork(url, progressData, queueStatus)
+    const reconQueueStatus = reconRateLimiter.getQueueStatus(sessionId)
+    const remainingWork = getRemainingWork(
+      url,
+      progressData,
+      queueStatus,
+      reconQueueStatus
+    )
     const estimatedTimeRemaining = calculateEstimatedTimeRemaining(
       remainingWork,
       progressData,
-      queueStatus
+      queueStatus,
+      reconQueueStatus
     )
 
-    const isCancelled = globalRateLimiter.isSessionCancelledSync(sessionId)
+    const isCancelled = isBestpreisSearchSessionCancelled(sessionId)
     if (!isCancelled && !progressData?.isComplete && remainingWork.total > 0) {
       recordSearchEtaEstimate(sessionId, estimatedTimeRemaining, parseSearchType(url))
     }
@@ -135,16 +187,29 @@ export async function GET(request: NextRequest) {
       currentDate: progressData?.currentDate || "",
       isComplete: progressData?.isComplete || false,
       estimatedTimeRemaining,
-      queueSize: queueStatus.queueSize,
-      activeRequests: queueStatus.activeRequests,
-      totalUsers: queueStatus.totalUsers,
-      otherActiveSearches: queueStatus.otherCompetingSearches,
-      otherRemainingRequests: queueStatus.otherCompetingRemainingRequests,
+      queueSize: queueStatus.queueSize + reconQueueStatus.queueSize,
+      activeRequests: queueStatus.activeRequests + reconQueueStatus.activeRequests,
+      totalUsers: Math.max(queueStatus.totalUsers, reconQueueStatus.totalUsers),
+      otherActiveSearches: Math.max(
+        queueStatus.otherCompetingSearches,
+        reconQueueStatus.otherCompetingSearches
+      ),
+      otherRemainingRequests:
+        queueStatus.otherCompetingRemainingRequests +
+        reconQueueStatus.otherCompetingRemainingRequests,
       isCancelled,
-      isContended: remainingWork.total > 0 && queueStatus.otherCompetingSearches > 0,
-      isRateLimited: queueStatus.isRateLimited,
-      effectiveInterval: queueStatus.effectiveInterval,
+      isContended: remainingWork.total > 0 && (
+        queueStatus.otherCompetingSearches > 0 ||
+        reconQueueStatus.otherCompetingSearches > 0
+      ),
+      isRateLimited: queueStatus.isRateLimited || reconQueueStatus.isRateLimited,
+      effectiveInterval: Math.max(
+        queueStatus.effectiveInterval,
+        reconQueueStatus.effectiveInterval
+      ),
       remainingRequests: remainingWork.total,
+      remainingTagesbestpreisRequests: remainingWork.tagesbestpreis,
+      remainingReconRequests: remainingWork.recon,
     })
 
   } catch (error) {
@@ -164,7 +229,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (data.isActiveSearch === false) {
-      globalRateLimiter.cancelSession(sessionId, 'client_inactive')
+      cancelBestpreisSearchSession(sessionId, 'client_inactive')
       return NextResponse.json({ success: true })
     }
 
@@ -178,14 +243,40 @@ export async function POST(request: NextRequest) {
     if (data.isComplete) {
       // Session als abgeschlossen markieren, damit sie nicht mehr als aktiv gilt
       // Verwende die cancel-Funktion mit speziellem Grund für abgeschlossene Suchen
-      globalRateLimiter.cancelSession(sessionId, 'search_completed')
+      cancelBestpreisSearchSession(sessionId, 'search_completed')
       logDebug(LOG_SCOPE, "✅ Search session marked as completed", { sessionId })
     } else {
+      const remainingDays = Math.max(
+        0,
+        Number(data.totalDays || 0) - Number(data.currentDay || 0)
+      )
+      const remainingTagesbestpreisRequests = Math.max(
+        0,
+        Number(
+          data.remainingTagesbestpreisRequests ??
+          data.remainingRateLimitedRequests ??
+          data.uncachedDays ??
+          0
+        )
+      )
+      const remainingReconRequests = Math.max(
+        0,
+        Number(data.remainingReconRequests ?? 0)
+      )
       globalRateLimiter.registerSearchSession(
         sessionId,
-        Math.max(0, Number(data.totalDays || 0) - Number(data.currentDay || 0)),
-        Math.max(0, Number(data.uncachedDays || 0))
+        remainingDays,
+        remainingTagesbestpreisRequests
       )
+      if (remainingReconRequests > 0) {
+        reconRateLimiter.registerSearchSession(
+          sessionId,
+          remainingDays,
+          remainingReconRequests
+        )
+      } else {
+        reconRateLimiter.unregisterSearchSession(sessionId)
+      }
     }
 
     // Nur wichtige Meilensteine loggen

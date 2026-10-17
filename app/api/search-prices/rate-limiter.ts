@@ -22,7 +22,39 @@ interface QueuedRequest {
   timestamp: number
 }
 
+interface RateLimiterConfig {
+  baseInterval: number
+  rollingLimitCount: number
+  rollingLimitWindow: number
+  rollingLimitSafetyBuffer: number
+  pacingStartCount: number
+  minPacedInterval: number
+  maxInterval: number
+  maxRetries: number
+  cleanupInterval: number
+  sessionCancelTimeout: number
+  completedSessionTimeout: number
+}
+
+interface RateLimiterOptions {
+  name: "tagesbestpreis" | "recon"
+  envPrefix: "RL" | "RECON_RL"
+  managesSessionLifecycle: boolean
+}
+
+function readRateLimiterNumber(
+  envPrefix: RateLimiterOptions["envPrefix"],
+  key: string,
+  fallback: number
+): number {
+  const scopedValue = process.env[`${envPrefix}_${key}`]
+  const sharedValue = envPrefix === "RL" ? undefined : process.env[`RL_${key}`]
+  const value = Number(scopedValue ?? sharedValue ?? fallback)
+  return Number.isFinite(value) && value > 0 ? value : fallback
+}
+
 class GlobalRateLimiter {
+  private static readonly instances: GlobalRateLimiter[] = []
   private sessionQueues = new Map<string, QueuedRequest[]>() // Separate Queue pro Session
   private sessionRoundRobin: string[] = [] // Round-Robin Liste der Sessions
   private currentSessionIndex = 0 // Aktueller Index im Round-Robin
@@ -39,25 +71,12 @@ class GlobalRateLimiter {
   // Interne Cancel-Session Verwaltung
   private cancelledSessions = new Set<string>() // Cancelled Sessions
   
-  // Konfiguration - konsolidiert für bessere Wartbarkeit
-  private readonly config = {
-    baseInterval: Number(process.env.RL_BASE_INTERVAL_MS ?? 450),
-    rollingLimitCount: Number(process.env.RL_ROLLING_LIMIT_COUNT ?? 30),
-    rollingLimitWindow: Number(process.env.RL_ROLLING_LIMIT_WINDOW_MS ?? 60 * 1000),
-    rollingLimitSafetyBuffer: Number(process.env.RL_ROLLING_LIMIT_SAFETY_MS ?? 1000),
-    pacingStartCount: Number(process.env.RL_PACING_START_COUNT ?? 10),
-    minPacedInterval: Number(process.env.RL_MIN_PACED_INTERVAL_MS ?? 1250),
-    maxInterval: Number(process.env.RL_MAX_INTERVAL_MS ?? 12000),
-    maxRetries: 3,
-    cleanupInterval: 5000,
-    sessionCancelTimeout: 3 * 60 * 1000, // 3 Minuten (reduziert)
-    completedSessionTimeout: 30 * 1000 // 30 Sekunden (reduziert)
-  }
+  private readonly config: RateLimiterConfig
   private readonly activeSearchHeartbeatTimeout = 30 * 1000
   private readonly visibleSearchHeartbeatTimeout = 5 * 1000
 
-  private minInterval = this.config.baseInterval
-  private readonly maxConcurrentRequests = Number(process.env.RL_MAX_CONCURRENT_REQUESTS ?? 3)
+  private minInterval: number
+  private readonly maxConcurrentRequests: number
   private averageExecutionTimeMs = 2000
   private readonly executionTimeSmoothing = 0.2
   private recentExecutionTimesMs: number[] = []
@@ -68,7 +87,24 @@ class GlobalRateLimiter {
   private processingTimer: ReturnType<typeof setTimeout> | null = null
   private cleanupTimer: ReturnType<typeof setTimeout> | null = null
 
-  constructor() {
+  constructor(private readonly options: RateLimiterOptions) {
+    this.config = {
+      baseInterval: readRateLimiterNumber(options.envPrefix, "BASE_INTERVAL_MS", 450),
+      rollingLimitCount: readRateLimiterNumber(options.envPrefix, "ROLLING_LIMIT_COUNT", 30),
+      rollingLimitWindow: readRateLimiterNumber(options.envPrefix, "ROLLING_LIMIT_WINDOW_MS", 60 * 1000),
+      rollingLimitSafetyBuffer: readRateLimiterNumber(options.envPrefix, "ROLLING_LIMIT_SAFETY_MS", 1000),
+      pacingStartCount: readRateLimiterNumber(options.envPrefix, "PACING_START_COUNT", 10),
+      minPacedInterval: readRateLimiterNumber(options.envPrefix, "MIN_PACED_INTERVAL_MS", 1250),
+      maxInterval: readRateLimiterNumber(options.envPrefix, "MAX_INTERVAL_MS", 12000),
+      maxRetries: 3,
+      cleanupInterval: 5000,
+      sessionCancelTimeout: 3 * 60 * 1000,
+      completedSessionTimeout: 30 * 1000,
+    }
+    this.minInterval = this.config.baseInterval
+    this.maxConcurrentRequests = readRateLimiterNumber(options.envPrefix, "MAX_CONCURRENT_REQUESTS", 3)
+    GlobalRateLimiter.instances.push(this)
+
     // Starte regelmäßigen Cleanup abgebrochener Sessions
     this.cleanupTimer = setInterval(() => {
       this.cleanupCancelledSessions()
@@ -120,10 +156,28 @@ class GlobalRateLimiter {
   }
 
   private updateQueueMetricsSnapshot(now = Date.now()): void {
+    const activeSessionIds = new Set<string>()
+    let queueSize = 0
+    let activeRequests = 0
+
+    for (const limiter of GlobalRateLimiter.instances) {
+      queueSize += limiter.getTotalQueueSize()
+      activeRequests += limiter.activeRequests
+      for (const sessionId of limiter.getVisibleActiveSearchSessionIds(now)) {
+        activeSessionIds.add(sessionId)
+      }
+    }
+
     metricsCollector.updateQueueMetrics(
-      this.getTotalQueueSize(),
-      this.activeRequests,
-      this.getVisibleActiveSearchSessionIds(now).size
+      queueSize,
+      activeRequests,
+      activeSessionIds.size
+    )
+  }
+
+  private updateRateLimitIntervalMetric(): void {
+    metricsCollector.updateRateLimitInterval(
+      Math.max(...GlobalRateLimiter.instances.map(limiter => limiter.minInterval))
     )
   }
 
@@ -431,9 +485,11 @@ class GlobalRateLimiter {
       if (result && typeof result === 'object' && '__httpStatus' in result) {
         const status = Number((result as any).__httpStatus)
         const msg = (result as any).__errorText || ''
+        const retryAfterMs = Number((result as any).__retryAfterMs) || 0
 
         if (status === 429) {
           logWarn(LOG_SCOPE, "Rate limit response received", {
+            limiter: this.options.name,
             requestId: request.id,
             status,
           })
@@ -442,7 +498,7 @@ class GlobalRateLimiter {
 
           // Retry-Logik
           if (retryCount < maxRetries) {
-            const retryDelay = this.calculateRetryDelay(retryCount)
+            const retryDelay = this.calculateRetryDelay(retryCount, retryAfterMs)
             logInfo(LOG_SCOPE, "Request re-queued after rate limit response", {
               requestId: request.id,
               retryDelayMs: retryDelay,
@@ -566,13 +622,14 @@ class GlobalRateLimiter {
     this.rateLimitedUntil = Date.now() + 60 * 1000
     
     logWarn(LOG_SCOPE, "Rate limit interval increased", {
+      limiter: this.options.name,
       previousIntervalMs: this.minInterval,
       nextIntervalMs: Math.round(target),
     })
     this.minInterval = Math.round(target)
     
     // Update metrics
-    metricsCollector.updateRateLimitInterval(this.minInterval)
+    this.updateRateLimitIntervalMetric()
   }
 
   private onRequestSuccess() {
@@ -589,15 +646,16 @@ class GlobalRateLimiter {
     }
     
     // Update metrics
-    metricsCollector.updateRateLimitInterval(this.minInterval)
+    this.updateRateLimitIntervalMetric()
   }
 
-  private calculateRetryDelay(retryCount: number): number {
+  private calculateRetryDelay(retryCount: number, retryAfterMs = 0): number {
     // Exponential backoff: 2s, 4s, 8s
     const exponentialDelay = Math.min(2000 * Math.pow(2, retryCount), 8000)
     const now = Date.now()
     return Math.max(
       exponentialDelay,
+      Math.max(0, retryAfterMs),
       this.getRollingWindowPacingDelay(now),
       this.getRollingWindowDelay(now)
     )
@@ -699,7 +757,7 @@ class GlobalRateLimiter {
       })
       this.minInterval = Math.round(targetInterval)
       // Update metrics
-      metricsCollector.updateRateLimitInterval(this.minInterval)
+      this.updateRateLimitIntervalMetric()
     }
   }
 
@@ -783,10 +841,12 @@ class GlobalRateLimiter {
   }
 
   public cancelSession(sessionId: string, reason: string = 'user_request'): void {
-    if (reason === 'search_completed') {
-      completeSearchEtaTracking(sessionId)
-    } else {
-      discardSearchEtaTracking(sessionId)
+    if (this.options.managesSessionLifecycle) {
+      if (reason === 'search_completed') {
+        completeSearchEtaTracking(sessionId)
+      } else {
+        discardSearchEtaTracking(sessionId)
+      }
     }
     this.unregisterSearchSession(sessionId)
 
@@ -836,7 +896,9 @@ class GlobalRateLimiter {
     })
     
     // Record metrics
-    metricsCollector.recordSessionCancellation(reason)
+    if (this.options.managesSessionLifecycle) {
+      metricsCollector.recordSessionCancellation(reason)
+    }
     
     this.cancelledSessions.add(sessionId)
     
@@ -1043,16 +1105,35 @@ class GlobalRateLimiter {
       sessionPosition: ownPosition // Position in der Round-Robin Liste
     }
     
-    // Update queue metrics
-    metricsCollector.updateQueueMetrics(
-      result.queueSize,
-      result.activeRequests,
-      activeSearchSessionIds.size
-    )
+    // Beide getrennten Budgets gemeinsam als operative Queue-Metrik melden.
+    this.updateQueueMetricsSnapshot(now)
     
     return result
   }
 }
 
-// Globale Instanz des Rate Limiters
-export const globalRateLimiter = new GlobalRateLimiter()
+// Tagesbestpreis und recon haben empirisch getrennte Upstream-Budgets. Die
+// bisherige Exportbezeichnung bleibt als Alias erhalten, damit Aufrufer des
+// Tagesbestpreis-Endpunkts nicht unnötig umbenannt werden müssen.
+export const tagesbestpreisRateLimiter = new GlobalRateLimiter({
+  name: "tagesbestpreis",
+  envPrefix: "RL",
+  managesSessionLifecycle: true,
+})
+export const globalRateLimiter = tagesbestpreisRateLimiter
+
+export const reconRateLimiter = new GlobalRateLimiter({
+  name: "recon",
+  envPrefix: "RECON_RL",
+  managesSessionLifecycle: false,
+})
+
+export function cancelBestpreisSearchSession(sessionId: string, reason: string): void {
+  tagesbestpreisRateLimiter.cancelSession(sessionId, reason)
+  reconRateLimiter.cancelSession(sessionId, reason)
+}
+
+export function isBestpreisSearchSessionCancelled(sessionId: string): boolean {
+  return tagesbestpreisRateLimiter.isSessionCancelledSync(sessionId) ||
+    reconRateLimiter.isSessionCancelledSync(sessionId)
+}

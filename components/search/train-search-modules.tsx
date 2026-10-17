@@ -10,6 +10,7 @@ import {
   Info,
   Route,
   Settings,
+  Ticket,
   User,
   X,
   Zap,
@@ -18,6 +19,8 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
+import { getBerlinDateKey } from "@/lib/shared/berlin-date"
 
 export const searchControlClass =
   "h-11 w-full min-w-0 max-w-full box-border px-3 text-base leading-tight rounded-md border border-input bg-background ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
@@ -511,6 +514,59 @@ function travelerSummary(age: string, discountType: string, discountClass: strin
     ? ` (${discountClass === "KLASSE_1" ? "1." : "2."} Klasse)`
     : ""
   return `${ageText} · ${discountText}${discountClassText} · ${classText} Klasse`
+}
+
+export function FlexPriceComparisonControl({
+  tarif,
+  onTarifChange,
+}: {
+  tarif: string
+  onTarifChange: (value: string) => void
+}) {
+  const [showNewBadge, setShowNewBadge] = useState(false)
+
+  useEffect(() => {
+    // Hide the introductory badge after four weeks, independently of future releases.
+    setShowNewBadge(getBerlinDateKey() < "2026-11-14")
+  }, [])
+
+  const enabled = tarif === "FLEXPREIS"
+  const description = enabled
+      ? "Flexpreise ohne Zugbindung werden je Reisetag geprüft."
+      : "Zusätzlich Flexpreise ohne Zugbindung vergleichen."
+
+  return (
+    <div className="flex min-h-14 items-center justify-between gap-3 rounded-xl border border-gray-200 bg-white px-4 py-3">
+      <div className="flex min-w-0 items-center gap-3">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
+          <Ticket className="h-4 w-4" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <Label
+            htmlFor="compare-flex-prices"
+            className="flex cursor-pointer flex-wrap items-center gap-x-2 gap-y-1 text-sm font-semibold leading-5 text-gray-800"
+          >
+            <span>Flexpreise vergleichen</span>
+            {showNewBadge && (
+              <span className="rounded-full border border-violet-200 bg-violet-50 px-1.5 text-xs font-medium leading-5 text-violet-700">
+                Neu
+              </span>
+            )}
+          </Label>
+          <span id="compare-flex-prices-description" className="mt-0.5 block text-xs leading-4 text-gray-500">
+            {description}
+          </span>
+        </span>
+      </div>
+      <Switch
+        id="compare-flex-prices"
+        checked={enabled}
+        onCheckedChange={(checked) => onTarifChange(checked ? "FLEXPREIS" : "SPARPREIS")}
+        aria-describedby="compare-flex-prices-description"
+        aria-label="Flexpreise vergleichen"
+      />
+    </div>
+  )
 }
 
 export function TravelerOptionsModule({

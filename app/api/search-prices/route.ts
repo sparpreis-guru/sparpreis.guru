@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { globalRateLimiter } from './rate-limiter'
+import { globalRateLimiter, reconRateLimiter } from './rate-limiter'
 import { searchBahnhof, getBestPrice } from './bahn-api'
 import { updateProgress, updateAverageResponseTimes, getAverageResponseTimes, passesTimeFilter } from './utils'
 import { generateCacheKey, getCachedResult, getCacheSize, getStationSearchCacheSize, type PriceHistoryEntry } from './cache'
@@ -8,6 +8,12 @@ import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
 import { getFeasibleReturnSearchDates, getEligibleDateKeys } from '@/lib/search/return-search-feasibility'
+import {
+  getUncachedDayRequestWeight,
+  getUncachedDayRequestWorkload,
+} from '@/lib/search/search-workload'
+import { chooseFlexpreisComparison, comparisonSource, type FlexpreisSource, type FlexpreisDayData } from '@/lib/search/flexpreis-comparison'
+import { cachedFlexpreisQuote, resolveFlexpreisDay, supplementFlexpreisSources, type FlexpreisRequestConfig } from './flexpreis'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -27,6 +33,7 @@ interface TrainResult {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
   recordedAt?: number
+  flexpreis?: FlexpreisDayData
   priceHistory?: PriceHistoryEntry[]
   allIntervals?: Array<{
     preis: number
@@ -271,9 +278,16 @@ export async function POST(request: NextRequest) {
       returnAnkunftAb,
       returnAnkunftBis,
       umstiegszeit,
+      tarif,
+      flexBasisId,
       requestedOutwardDates,
       requestedReturnDates,
     } = body
+
+    const resolvedTarif = tarif === "FLEXPREIS" && rueckfahrt !== "1" && rueckfahrt !== true ? "FLEXPREIS" : "SPARPREIS"
+    if (flexBasisId !== undefined && (typeof flexBasisId !== "string" || flexBasisId.length > 8192)) {
+      return NextResponse.json({ error: "Ungültiger Vergleichsreiseweg" }, { status: 400 })
+    }
 
     const earliestSearchDate = getEarliestSearchDateKey()
     if (typeof reisezeitraumAb !== "string" || reisezeitraumAb < earliestSearchDate) {
@@ -410,6 +424,8 @@ export async function POST(request: NextRequest) {
         let maxDays = 0
         let metaData: any = undefined
         const results: TrainResults = {}
+        const flexSourcesByDate: Record<string, FlexpreisSource[]> = {}
+        const flexDiscoveryErrors = new Set<string>()
         const returnResults: TrainResults = {}
         const getCurrentTravelCombinations = () =>
           returnSearchEnabled
@@ -474,6 +490,7 @@ export async function POST(request: NextRequest) {
           )
           const cheapestDate = resultEntries.find(([, val]) => val?.preis === cheapestPrice)?.[0]
           const finalQueueStatus = globalRateLimiter.getQueueStatus()
+          const finalReconQueueStatus = reconRateLimiter.getQueueStatus()
           const finalAvgTimes = getAverageResponseTimes()
           const allDatesToProcess = [...datesToProcess, ...returnDatesToProcess]
           await updateProgress(
@@ -486,8 +503,8 @@ export async function POST(request: NextRequest) {
             0,
             finalAvgTimes.uncached,
             finalAvgTimes.cached,
-            finalQueueStatus.queueSize,
-            finalQueueStatus.activeRequests
+            finalQueueStatus.queueSize + finalReconQueueStatus.queueSize,
+            finalQueueStatus.activeRequests + finalReconQueueStatus.activeRequests
           )
 
           const resultsWithStations = {
@@ -543,7 +560,15 @@ export async function POST(request: NextRequest) {
           metricsCollector.updateCacheMetrics(getStationSearchCacheSize(), cacheSize)
 
           // Erstelle Liste aller Tage mit Cache-Status
-          const dayStatusList: { date: string; isCached: boolean; cacheKey: string; direction: "outward" | "return" }[] = []
+          const dayStatusList: {
+            date: string
+            isCached: boolean
+            cacheKey: string
+            direction: "outward" | "return"
+            rateLimitedRequestWeight: number
+            tagesbestpreisRequestWeight: number
+            reconRequestWeight: number
+          }[] = []
           for (const dateStr of datesToProcess) {
             const cacheKey = generateCacheKey({
               startStationId: startStation.normalizedId,
@@ -557,8 +582,24 @@ export async function POST(request: NextRequest) {
               umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
             })
             const cacheState = getCachedResult(cacheKey)
-            const isCached = !!cacheState.data && !cacheState.needsRefresh
-            dayStatusList.push({ date: dateStr, isCached, cacheKey, direction: "outward" })
+            const cachedDay = cacheState.data?.[dateStr]
+            const isCached = !!cachedDay &&
+              !cacheState.needsRefresh &&
+              (resolvedTarif !== "FLEXPREIS" || Array.isArray(cachedDay.flexpreisSources))
+            const workload = isCached
+              ? { tagesbestpreisRequests: 0, reconRequests: 0 }
+              : getUncachedDayRequestWorkload("SPARPREIS")
+            dayStatusList.push({
+              date: dateStr,
+              isCached,
+              cacheKey,
+              direction: "outward",
+              rateLimitedRequestWeight: isCached
+                ? 0
+                : getUncachedDayRequestWeight("SPARPREIS"),
+              tagesbestpreisRequestWeight: workload.tagesbestpreisRequests,
+              reconRequestWeight: workload.reconRequests,
+            })
           }
           for (const dateStr of returnDatesToProcess) {
             const cacheKey = generateCacheKey({
@@ -573,13 +614,39 @@ export async function POST(request: NextRequest) {
               umstiegszeit: (umstiegszeit && umstiegszeit !== "normal" && umstiegszeit !== "undefined") ? umstiegszeit : undefined,
             })
             const cacheState = getCachedResult(cacheKey)
-            const isCached = !!cacheState.data && !cacheState.needsRefresh
-            dayStatusList.push({ date: dateStr, isCached, cacheKey, direction: "return" })
+            const isCached = !!cacheState.data?.[dateStr] && !cacheState.needsRefresh
+            // Die Rückfahrt wird aktuell immer als Sparpreis geladen.
+            const workload = isCached
+              ? { tagesbestpreisRequests: 0, reconRequests: 0 }
+              : getUncachedDayRequestWorkload("SPARPREIS")
+            dayStatusList.push({
+              date: dateStr,
+              isCached,
+              cacheKey,
+              direction: "return",
+              rateLimitedRequestWeight: isCached
+                ? 0
+                : getUncachedDayRequestWeight("SPARPREIS"),
+              tagesbestpreisRequestWeight: workload.tagesbestpreisRequests,
+              reconRequestWeight: workload.reconRequests,
+            })
           }
 
           // Gesamtanzahl der gecached und ungecachten Tage für die gesamte Suche
-          let totalUncachedDays = dayStatusList.filter((d) => !d.isCached).length
-          let totalCachedDays = dayStatusList.filter((d) => d.isCached).length
+          const totalUncachedDays = dayStatusList.filter((d) => !d.isCached).length
+          const totalCachedDays = dayStatusList.filter((d) => d.isCached).length
+          const totalRateLimitedRequests = dayStatusList.reduce(
+            (sum, day) => sum + day.rateLimitedRequestWeight,
+            0
+          ) + (resolvedTarif === "FLEXPREIS" ? datesToProcess.length : 0)
+          const totalTagesbestpreisRequests = dayStatusList.reduce(
+            (sum, day) => sum + day.tagesbestpreisRequestWeight,
+            0
+          )
+          const totalReconRequests = dayStatusList.reduce(
+            (sum, day) => sum + day.reconRequestWeight,
+            0
+          ) + (resolvedTarif === "FLEXPREIS" ? datesToProcess.length : 0)
 
           // Update metrics with actual cached/uncached counts
           metricsCollector.incrementCounter('days_cached_total', totalCachedDays)
@@ -611,6 +678,7 @@ export async function POST(request: NextRequest) {
               returnAnkunftBis,
               returnWochentage: returnSearchEnabled ? (returnWochentage || wochentage) : undefined,
               umstiegszeit,
+              tarif: resolvedTarif,
             },
             sessionId,
           }
@@ -621,6 +689,7 @@ export async function POST(request: NextRequest) {
 
           // Initialer Progress-Update - zeigt sofort die Queue-Size an
           const queueStatus = globalRateLimiter.getQueueStatus()
+          const reconQueueStatus = reconRateLimiter.getQueueStatus()
           await updateProgress(
             sessionId,
             0, // Start bei Tag 0
@@ -631,8 +700,11 @@ export async function POST(request: NextRequest) {
             totalCachedDays,
             avgTimes.uncached,
             avgTimes.cached,
-            queueStatus.queueSize,
-            queueStatus.activeRequests
+            queueStatus.queueSize + reconQueueStatus.queueSize,
+            queueStatus.activeRequests + reconQueueStatus.activeRequests,
+            totalRateLimitedRequests,
+            totalTagesbestpreisRequests,
+            totalReconRequests
           )
 
           // Requests zunächst als Tasks anlegen, damit Hin- und Rückfahrten
@@ -672,7 +744,7 @@ export async function POST(request: NextRequest) {
               ermaessigungKlasse,
               klasse,
               maximaleUmstiege: processedMaxUmstiege,
-              schnelleVerbindungen: schnelleVerbindungen === true || schnelleVerbindungen === "1",
+              schnelleVerbindungen: schnelleVerbindungen === true || schnelleVerbindungen === "1" || schnelleVerbindungen === "true",
               nurDeutschlandTicketVerbindungen:
                 nurDeutschlandTicketVerbindungen === true || nurDeutschlandTicketVerbindungen === "1",
               abfahrtAb,
@@ -680,6 +752,7 @@ export async function POST(request: NextRequest) {
               ankunftAb,
               ankunftBis,
               umstiegszeit,
+              tarif: resolvedTarif,
             })
 
             // Füge recordedAt hinzu (mit Cast, da getBestPrice-Typ es nicht kennt)
@@ -917,6 +990,9 @@ export async function POST(request: NextRequest) {
           let completedRequests = 0
           let completedUncachedRequests = 0
           let completedCachedRequests = 0
+          let completedRateLimitedRequests = 0
+          let completedTagesbestpreisRequests = 0
+          let completedReconRequests = 0
           const processResult = async (resultPromise: Promise<any>) => {
             try {
               const { currentDateStr, dayResponse, dayCount, direction, isCached } = await resultPromise
@@ -925,6 +1001,12 @@ export async function POST(request: NextRequest) {
                 completedCachedRequests++
               } else {
                 completedUncachedRequests++
+                completedRateLimitedRequests +=
+                  dayStatusList[dayCount]?.rateLimitedRequestWeight || 1
+                completedTagesbestpreisRequests +=
+                  dayStatusList[dayCount]?.tagesbestpreisRequestWeight || 1
+                completedReconRequests +=
+                  dayStatusList[dayCount]?.reconRequestWeight || 0
               }
 
               // Prüfe Session-Abbruch BEVOR Ergebnis verarbeitet wird
@@ -950,6 +1032,13 @@ export async function POST(request: NextRequest) {
                     }
                   }
                 } else {
+                  if (resolvedTarif === "FLEXPREIS") {
+                    flexSourcesByDate[currentDateStr] = dayResponse.flexpreisSources || []
+                    if (dayResponse.error) flexDiscoveryErrors.add(currentDateStr)
+                    for (const day of Object.values(dayResponse.result) as TrainResult[]) {
+                      day.flexpreis = { version: 1, status: "pending", quotes: [], alternativesStatus: "idle" }
+                    }
+                  }
                   Object.assign(results, dayResponse.result)
 
                   // Stream einzelnes Tagesergebnis nur wenn Session noch aktiv
@@ -973,10 +1062,11 @@ export async function POST(request: NextRequest) {
               // Progress-Update nach jedem abgeschlossenen Request (nur wenn Session noch aktiv)
               if (!globalRateLimiter.isSessionCancelledSync(sessionId)) {
                 const updatedQueueStatus = globalRateLimiter.getQueueStatus()
+                const updatedReconQueueStatus = reconRateLimiter.getQueueStatus()
                 const updatedAvgTimes = getAverageResponseTimes()
                 await updateProgress(
                   sessionId,
-                  completedRequests,
+                  resolvedTarif === "FLEXPREIS" ? 0 : completedRequests,
                   maxDays,
                   currentDateStr,
                   false,
@@ -984,13 +1074,16 @@ export async function POST(request: NextRequest) {
                   Math.max(0, totalCachedDays - completedCachedRequests),
                   updatedAvgTimes.uncached,
                   updatedAvgTimes.cached,
-                  updatedQueueStatus.queueSize,
-                  updatedQueueStatus.activeRequests
+                  updatedQueueStatus.queueSize + updatedReconQueueStatus.queueSize,
+                  updatedQueueStatus.activeRequests + updatedReconQueueStatus.activeRequests,
+                  Math.max(0, totalRateLimitedRequests - completedRateLimitedRequests),
+                  Math.max(0, totalTagesbestpreisRequests - completedTagesbestpreisRequests),
+                  Math.max(0, totalReconRequests - completedReconRequests)
                 )
               }
 
               // Wenn letzter Tag verarbeitet wurde, sofort Abschluss senden
-              if (!completeSent && completedRequests >= maxDays && !globalRateLimiter.isSessionCancelledSync(sessionId)) {
+              if (resolvedTarif !== "FLEXPREIS" && !completeSent && completedRequests >= maxDays && !globalRateLimiter.isSessionCancelledSync(sessionId)) {
                 await sendFinalComplete()
               }
 
@@ -1026,6 +1119,56 @@ export async function POST(request: NextRequest) {
 
           // Warte auf alle Requests, aber verarbeite sie sobald sie fertig sind.
           await Promise.all(prioritizedRequestPromises.map(processResult))
+
+          if (resolvedTarif === "FLEXPREIS" && !globalRateLimiter.isSessionCancelledSync(sessionId)) {
+            const comparison = chooseFlexpreisComparison(flexSourcesByDate, flexBasisId)
+            metaData.flexComparison = comparison
+            safeEnqueue(encoder.encode(JSON.stringify({ type: "meta", meta: metaData }) + '\n'))
+            const config: FlexpreisRequestConfig = {
+              startStation, zielStation, sessionId, klasse: klasse || "KLASSE_2", alter: alter || "ERWACHSENER",
+              ermaessigungArt, ermaessigungKlasse, maximaleUmstiege, umstiegszeit,
+              schnelleVerbindungen: schnelleVerbindungen === true || schnelleVerbindungen === "1",
+              abfahrtAb, abfahrtBis, ankunftAb, ankunftBis,
+            }
+            const basisId = comparison.basis?.id || flexBasisId
+            const jobs = datesToProcess.map(date => ({ date, source: comparisonSource(flexSourcesByDate[date] || [], basisId) }))
+            let remainingRecon = jobs.filter(j => j.source && !cachedFlexpreisQuote(j.source, config)).length
+            let remainingTimetable = basisId ? jobs.filter(j => !j.source && !flexDiscoveryErrors.has(j.date)).length : 0
+            let finished = 0
+            const reportFlexProgress = async (date: string) => {
+              const q = globalRateLimiter.getQueueStatus(), r = reconRateLimiter.getQueueStatus()
+              const avg = getAverageResponseTimes()
+              await updateProgress(sessionId, finished, maxDays, date, false, maxDays - finished, 0,
+                avg.uncached, avg.cached, q.queueSize + r.queueSize, q.activeRequests + r.activeRequests,
+                remainingRecon + remainingTimetable, remainingTimetable, remainingRecon)
+            }
+            await reportFlexProgress(datesToProcess[0] || "")
+            // Queue all price work; the Recon limiter, not unbounded HTTP concurrency, schedules it.
+            await Promise.all(jobs.map(async ({ date, source }) => {
+              if (globalRateLimiter.isSessionCancelledSync(sessionId)) return
+              let sources = flexSourcesByDate[date] || []
+              let supplementFailed = false
+              if (basisId && !source && !flexDiscoveryErrors.has(date)) {
+                try { sources = [...sources, ...await supplementFlexpreisSources(date, config)] }
+                catch { supplementFailed = true }
+                remainingTimetable = Math.max(0, remainingTimetable - 1)
+                const extraSource = comparisonSource(sources, basisId)
+                if (extraSource && !cachedFlexpreisQuote(extraSource, config)) remainingRecon++
+              }
+              const needsQuote = comparisonSource(sources, basisId)
+              const wasUncached = needsQuote && !cachedFlexpreisQuote(needsQuote, config)
+              const day = supplementFailed || flexDiscoveryErrors.has(date)
+                ? { version: 1 as const, basisId, status: "error" as const, quotes: [], alternativesStatus: "idle" as const }
+                : await resolveFlexpreisDay(sources, config, basisId)
+              if (wasUncached) remainingRecon = Math.max(0, remainingRecon - 1)
+              if (globalRateLimiter.isSessionCancelledSync(sessionId)) return
+              results[date] ||= { preis: 0, info: "Bestpreis nicht ermittelt", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "" }
+              results[date].flexpreis = day
+              finished++
+              safeEnqueue(encoder.encode(JSON.stringify({ type: "dayResult", date, result: results[date] }) + '\n'))
+              await reportFlexProgress(date)
+            }))
+          }
 
           // Falls aus irgendeinem Grund noch nicht gesendet, jetzt senden
           if (!completeSent && !globalRateLimiter.isSessionCancelledSync(sessionId)) {

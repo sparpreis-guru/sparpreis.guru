@@ -19,7 +19,8 @@
     "dev": "next dev",
     "lint": "next lint",
     "prestart": "node scripts/prepare-database.cjs",
-    "start": "next start"
+    "start": "next start",
+    "test:flexpreis": "node --test scripts/test-flexpreis-comparison.mjs scripts/test-flexpreis-api.mjs"
   },
   "dependencies": {
     "@radix-ui/react-alert-dialog": "1.1.23",

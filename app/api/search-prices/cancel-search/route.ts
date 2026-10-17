@@ -1,5 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
-import { globalRateLimiter } from "../rate-limiter"
+import {
+  cancelBestpreisSearchSession,
+  isBestpreisSearchSessionCancelled,
+} from "../rate-limiter"
 import { logDebug, logError, logInfo, logWarn } from "@/lib/shared/logger"
 
 const LOG_SCOPE = "bestpreissuche.cancel"
@@ -14,7 +17,7 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "sessionId required" }, { status: 400 })
     }
 
-    const isCancelled = globalRateLimiter.isSessionCancelledSync(sessionId)
+    const isCancelled = isBestpreisSearchSessionCancelled(sessionId)
     
     return NextResponse.json({
       isCancelled,
@@ -37,7 +40,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Prüfe ob Session bereits als abgebrochen markiert ist
-    if (globalRateLimiter.isSessionCancelledSync(sessionId)) {
+    if (isBestpreisSearchSessionCancelled(sessionId)) {
       return NextResponse.json({ 
         success: true, 
         sessionId,
@@ -47,7 +50,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Informiere Rate-Limiter über Cancel
-    globalRateLimiter.cancelSession(sessionId, reason)
+    cancelBestpreisSearchSession(sessionId, reason)
     
     const logCancel = reason === "user_request" ? logInfo : logDebug
     logCancel(LOG_SCOPE, "🛑 Search cancellation requested", {
