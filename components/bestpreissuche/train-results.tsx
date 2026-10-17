@@ -12,6 +12,7 @@ import { IncompleteSearchNotice } from "@/components/search/incomplete-search-no
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 import { getEligibleDateKeys, getFeasibleReturnSearchDates } from "@/lib/search/return-search-feasibility"
+import { mergeFlexpreisDays, rebaseFlexpreisResults, type FlexpreisDayData, type FlexpreisComparison } from "@/lib/search/flexpreis-comparison"
 
 const LOG_SCOPE = "bestpreissuche.client"
 const BACKGROUND_SEARCH_NOTICE = "Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden."
@@ -42,6 +43,7 @@ interface SearchParams {
   wochentage?: string // Only weekdays
   returnWochentage?: string
   umstiegszeit?: string
+  tarif?: string
 }
 
 interface TrainResultsProps {
@@ -54,6 +56,7 @@ interface PriceHistoryEntry {
 }
 
 interface PriceData {
+  flexpreis?: FlexpreisDayData
   preis: number
   info: string
   abfahrtsZeitpunkt: string
@@ -74,6 +77,7 @@ interface PriceData {
 }
 
 interface MetaData {
+  flexComparison?: FlexpreisComparison
   startStation: { name: string; id: string }
   zielStation: { name: string; id: string }
   sessionId?: string
@@ -96,6 +100,7 @@ interface MetaData {
     wochentage?: number[]
     returnWochentage?: number[]
     umstiegszeit?: string
+    tarif?: string
   }
 }
 
@@ -143,12 +148,19 @@ function parseWeekdaysParam(value?: string, fallback = ALL_WEEKDAYS) {
 }
 
 export function TrainResults({ searchParams }: TrainResultsProps) {
+  const [flexBasisOverride, setFlexBasisOverride] = useState<{ searchKey: string; id: string } | null>(null)
+  const flexBasisChangeRef = useRef<{ searchKey: string; id: string } | null>(null)
+  const extraDaysToRefreshRef = useRef<{ searchKey: string; dates: string[] } | null>(null)
+  const [flexLookupDate, setFlexLookupDate] = useState<string | null>(null)
+  const [flexLookupError, setFlexLookupError] = useState<{ date: string; message: string } | null>(null)
+  const flexLookupRef = useRef<{ controller: AbortController; sessionId: string } | null>(null)
   const [priceResults, setPriceResults] = useState<PriceResults>({})
   const [loading, setLoading] = useState(false)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedData, setSelectedData] = useState<PriceData | null>(null)
   const [isStreaming, setIsStreaming] = useState(false)
+  const [autoScrollOnSearchStart, setAutoScrollOnSearchStart] = useState(true)
   const [returnPriceResults, setReturnPriceResults] = useState<PriceResults>({})
   const [travelCombinations, setTravelCombinations] = useState<TravelCombination[]>([])
   const activeSessionIdRef = useRef<string | null>(null)
@@ -209,9 +221,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   useEffect(() => {
     window.dispatchEvent(new CustomEvent("bestpreissuche:search-state", {
-      detail: { isSearching: loading || isStreaming },
+      detail: { isSearching: loading || isStreaming || Boolean(flexLookupDate) },
     }))
-  }, [isStreaming, loading])
+  }, [isStreaming, loading, flexLookupDate])
 
   useEffect(() => () => {
     window.dispatchEvent(new CustomEvent("bestpreissuche:search-state", {
@@ -238,6 +250,13 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const zielStation = _meta?.zielStation
 
   const supersedeActiveRequests = useCallback((reason: string) => {
+    const flexRequest = flexLookupRef.current
+    flexLookupRef.current = null
+    flexRequest?.controller.abort()
+    if (flexRequest) void fetch("/api/search-prices/cancel-search", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: flexRequest.sessionId, reason }) }).catch(() => undefined)
+    setFlexLookupDate(null)
+    setFlexLookupError(null)
     const activeSessionId = activeSessionIdRef.current
     const activeController = abortControllerRef.current
     const activeLazyRequest = lazyRequestRef.current
@@ -261,6 +280,14 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   // Beendet Stream und Progress-Polling sofort; die Backend-Benachrichtigung läuft separat.
   const cancelSearchWithReason = useCallback((reason: 'user_request' | 'page_hidden') => {
+    const flexRequest = flexLookupRef.current
+    flexLookupRef.current = null
+    flexRequest?.controller.abort()
+    if (flexRequest) {
+      setFlexLookupDate(null)
+      void fetch("/api/search-prices/cancel-search", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: flexRequest.sessionId, reason }), keepalive: true }).catch(() => undefined)
+    }
     const activeSessionId = activeSessionIdRef.current
     const activeController = abortControllerRef.current
     const activeLazyRequest = lazyRequestRef.current
@@ -365,7 +392,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
 
     const notifyPageUnload = (reason: 'page_unload' | 'component_unmount') => {
-      const activeSessionIds = [activeSessionIdRef.current, lazyRequestRef.current?.sessionId]
+      flexLookupRef.current?.controller.abort()
+      const activeSessionIds = [activeSessionIdRef.current, lazyRequestRef.current?.sessionId, flexLookupRef.current?.sessionId]
         .filter((sessionId): sessionId is string => Boolean(sessionId))
       for (const activeSessionId of activeSessionIds) {
         const payload = new Blob(
@@ -383,7 +411,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
 
     const handleVisibilityChange = () => {
-      if (document.hidden && (activeSessionIdRef.current || lazyRequestRef.current)) {
+      if (document.hidden && (activeSessionIdRef.current || lazyRequestRef.current || flexLookupRef.current)) {
         cancelSearchWithReason('page_hidden')
       }
     }
@@ -411,7 +439,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   }, [cancelSearchWithReason])
 
   // Create a unique key for the current search to prevent duplicate requests
-  const currentSearchKey = JSON.stringify({
+  const baseSearchKey = JSON.stringify({
     start: searchParams.start,
     ziel: searchParams.ziel,
     reisezeitraumAb: searchParams.reisezeitraumAb,
@@ -437,7 +465,19 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     wochentage: searchParams.wochentage, // Changed from 'tage'
     returnWochentage: searchParams.returnWochentage,
     umstiegszeit: searchParams.umstiegszeit,
+    // Ohne Tarif im Suchschlüssel wurde beim Wechsel von Flex- auf Sparpreis
+    // die vorherige Ergebnisliste weiterverwendet. Erst ein manueller Neustart
+    // löste dann die tatsächlich neue Suche aus.
+    tarif: searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS",
   })
+  const selectedFlexBasisId = flexBasisOverride?.searchKey === baseSearchKey ? flexBasisOverride.id : undefined
+  const currentSearchKey = JSON.stringify([baseSearchKey, selectedFlexBasisId])
+  const isFlexBasisLoading = loading || isStreaming || Boolean(flexLookupDate) || lazyDayRequest?.status === "loading"
+  const changeFlexBasis = (id: string) => {
+    if (isFlexBasisLoading || id === _meta?.flexComparison?.basis?.id || !_meta?.flexComparison?.bases.some(basis => basis.id === id)) return
+    flexBasisChangeRef.current = { searchKey: baseSearchKey, id }
+    setFlexBasisOverride({ searchKey: baseSearchKey, id })
+  }
 
   const buildSearchRequestBody = (
     requestSessionId: string,
@@ -475,6 +515,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     returnAnkunftAb: searchParams.returnAnkunftAb,
     returnAnkunftBis: searchParams.returnAnkunftBis,
     umstiegszeit: searchParams.umstiegszeit,
+    tarif: searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS",
+    flexBasisId: selectedFlexBasisId || (requestedDates ? _meta?.flexComparison?.basis?.id : undefined),
     ...(requestedDates && {
       requestedOutwardDates: requestedDates.outwardDates,
       requestedReturnDates: requestedDates.returnDates,
@@ -490,6 +532,15 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       return
     }
     startedSearchKeyRef.current = currentSearchKey
+    const isBasisChange = flexBasisChangeRef.current?.searchKey === baseSearchKey &&
+      flexBasisChangeRef.current.id === selectedFlexBasisId
+    flexBasisChangeRef.current = null
+    extraDaysToRefreshRef.current = isBasisChange ? {
+      searchKey: currentSearchKey,
+      dates: validPriceResults.map(([date]) => date).filter(date => !availableOutwardDates.includes(date)).sort(),
+    } : null
+    const mergeStreamMeta = (incoming?: MetaData, current?: MetaData) => !incoming ? current :
+      isBasisChange && !incoming.flexComparison ? { ...incoming, flexComparison: current?.flexComparison } : incoming
 
     const searchPrices = async () => {
       supersedeActiveRequests("superseded_search")
@@ -499,11 +550,27 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       setIsFullMatrixLoading(false)
       setFullMatrixLoadError(null)
       setLoading(true)
-      setPriceResults({})
+      setAutoScrollOnSearchStart(!isBasisChange)
+      if (isBasisChange && selectedFlexBasisId) {
+        setSelectedData(previous => previous ? rebaseFlexpreisResults({ day: previous }, selectedFlexBasisId).day : null)
+        setPriceResults(previous => {
+          const next = rebaseFlexpreisResults(previous, selectedFlexBasisId)
+          const previousMeta = (previous as any)._meta as MetaData | undefined
+          if (previousMeta?.flexComparison) {
+            (next as any)._meta = { ...previousMeta, flexComparison: {
+              ...previousMeta.flexComparison,
+              basis: previousMeta.flexComparison.bases.find(basis => basis.id === selectedFlexBasisId),
+            } }
+          }
+          return next
+        })
+      } else {
+        setPriceResults({})
+        setSelectedDay(null)
+        setSelectedData(null)
+      }
       setReturnPriceResults({})
       setTravelCombinations([])
-      setSelectedDay(null)
-      setSelectedData(null)
       setIsStreaming(true)
       setShowAbortModal(false)
       setSearchWasCancelled(false)
@@ -561,14 +628,14 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                     if (data.type === 'meta') {
                       setPriceResults(prev => ({
                         ...prev,
-                        _meta: data.meta,
+                        _meta: mergeStreamMeta(data.meta, (prev as any)._meta) as any,
                       }))
                     } else if (data.type === 'dayResult') {
                       // Einzelnes Tagesergebnis hinzufügen
                       setPriceResults(prev => ({
                         ...prev,
                         [data.date]: data.result,
-                        _meta: data.meta || prev._meta
+                        _meta: mergeStreamMeta(data.meta, (prev as any)._meta) as any,
                       }))
                       if (Array.isArray(data.travelCombinations)) {
                         setTravelCombinations(data.travelCombinations)
@@ -707,6 +774,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchParams.wochentage, // Changed from 'tage'
     searchParams.returnWochentage,
     searchParams.umstiegszeit,
+    searchParams.tarif,
     supersedeActiveRequests,
   ])
 
@@ -784,7 +852,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             setPriceResults((current) => ({
               ...current,
               ...data.results,
-              _meta: data.results._meta || current._meta,
+              _meta: current._meta || data.results._meta,
             }))
           }
         }
@@ -826,11 +894,11 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
   }
 
-  const requestLazyDay = async (date: string) => {
+  const requestLazyDay = async (date: string, refresh = false) => {
     const requestKey = `day:${date}`
     if (!initialSearchComplete) return
     if (lazyRequestRef.current?.key === requestKey) return
-    if (Object.prototype.hasOwnProperty.call(priceResults, date)) return
+    if (!refresh && Object.prototype.hasOwnProperty.call(priceResults, date)) return
     if (isStreaming && availableOutwardDates.includes(date)) return
 
     setLazyDayRequest({ date, status: "loading" })
@@ -852,7 +920,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       const result = receivedResults[date]
       setLazyDayRequest({ date, status: "complete" })
 
-      if (result?.preis > 0) {
+      if (!refresh && result?.preis > 0) {
         handleSelectDay(date, result, false)
       }
     } catch (error) {
@@ -862,6 +930,21 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       logError(LOG_SCOPE, "Lazy day request failed", error, { date })
     }
   }
+
+  useEffect(() => {
+    const refresh = extraDaysToRefreshRef.current
+    if (isStreaming || !initialSearchComplete || abortControllerRef.current || refresh?.searchKey !== currentSearchKey) return
+    extraDaysToRefreshRef.current = null
+    const runId = searchRunIdRef.current
+    let disposed = false
+    void (async () => {
+      for (const date of refresh.dates) {
+        if (disposed || runId !== searchRunIdRef.current || lazyRequestRef.current) return
+        await requestLazyDay(date, true)
+      }
+    })()
+    return () => { disposed = true }
+  }, [currentSearchKey, initialSearchComplete, isStreaming])
 
   const requestFullMatrix = async (outwardDates: string[], returnDates: string[]) => {
     const requestedDates = {
@@ -923,6 +1006,32 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
   }
 
+  const checkFlexpreisAlternatives = async (date: string) => {
+    if (isStreaming) return
+    const previous = flexLookupRef.current
+    previous?.controller.abort()
+    if (previous) void fetch("/api/search-prices/cancel-search", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: previous.sessionId, reason: "superseded_search" }) }).catch(() => undefined)
+    const controller = new AbortController(), requestSessionId = generateSessionId()
+    const runId = searchRunIdRef.current
+    const basisId = selectedFlexBasisId || _meta?.flexComparison?.basis?.id
+    flexLookupRef.current = { controller, sessionId: requestSessionId }
+    setFlexLookupDate(date)
+    setFlexLookupError(null)
+    try {
+      const response = await fetch("/api/flexpreis/day", { method: "POST", headers: { "Content-Type": "application/json" },
+        signal: controller.signal, body: JSON.stringify({ ...buildSearchRequestBody(requestSessionId), date, flexBasisId: basisId }) })
+      const body = await response.json()
+      if (!response.ok) throw new Error(body.error || "Die Flexpreis-Prüfung ist fehlgeschlagen.")
+      if (controller.signal.aborted || runId !== searchRunIdRef.current || body.date !== date || body.flexpreis?.basisId !== basisId) return
+      setPriceResults(prev => ({ ...prev, [date]: { ...prev[date], flexpreis: mergeFlexpreisDays(prev[date]?.flexpreis, body.flexpreis) } }))
+    } catch (error) {
+      if (!controller.signal.aborted && runId === searchRunIdRef.current) setFlexLookupError({ date, message: error instanceof Error ? error.message : "Preisabfrage fehlgeschlagen" })
+    } finally {
+      if (flexLookupRef.current?.controller === controller) { flexLookupRef.current = null; setFlexLookupDate(null) }
+    }
+  }
+
   const handleSelectDay = (date: string, data: PriceData, shouldScroll = true) => {
     setSelectedDay(date)
     setSelectedData(data)
@@ -930,7 +1039,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
     requestAnimationFrame(() => {
       document.getElementById("day-connections")?.scrollIntoView({
-        behavior: "smooth",
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
       })
     })
@@ -940,7 +1049,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     if (hasReturnSearch || selectedDay) return
 
     const firstAvailableDay = validPriceResults
-      .filter(([, data]) => data.preis > 0)
+      .filter(([, data]) => data.preis > 0 || Boolean(data.flexpreis))
       .sort(([dateA], [dateB]) => dateA.localeCompare(dateB))[0]
 
     if (firstAvailableDay) {
@@ -980,7 +1089,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   }
 
   // Only show "no prices" message if search is completely done and no valid prices found
-  if (!hasReturnSearch && !loading && !isStreaming && !showAbortModal && !searchWasCancelled && prices.length === 0) {
+  if (!hasReturnSearch && !loading && !isStreaming && !showAbortModal && !searchWasCancelled && prices.length === 0 &&
+    !(searchParams.tarif === "FLEXPREIS" && validPriceResults.some(([, data]) => Boolean(data.flexpreis)))) {
     return (
         <div className="text-center py-8">
           <p className="text-orange-600 font-medium">Keine Preise gefunden</p>
@@ -1023,6 +1133,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             {/* Calendar View */}
             <div>
               <PriceCalendar
+                  autoScrollOnSearchStart={autoScrollOnSearchStart}
                   results={priceResults}
                   onDayClick={handleSelectDay}
                   startStation={startStation}
@@ -1038,10 +1149,17 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                   lazyDayRequest={lazyDayRequest}
                   onRequestDay={requestLazyDay}
                   canRequestAdditionalDays={initialSearchComplete}
+                  tarif={searchParams.tarif}
+                  flexComparison={_meta?.flexComparison}
+                  onFlexBasisChange={changeFlexBasis}
+                  isFlexBasisLoading={isFlexBasisLoading}
               />
             </div>
 
             <DayDetailsPanel
+                flexComparison={_meta?.flexComparison}
+                onFlexBasisChange={changeFlexBasis}
+                isFlexBasisLoading={isFlexBasisLoading}
                 date={selectedDay}
                 data={selectedData}
                 startStation={startStation}
@@ -1050,6 +1168,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                 onNavigateDay={handleNavigateDay}
                 dayKeys={dayKeys}
                 isLoading={Boolean(isStreaming && !selectedData)}
+                onCheckFlexpreise={isStreaming ? undefined : checkFlexpreisAlternatives}
+                isCheckingFlexpreise={flexLookupDate === selectedDay}
+                isFlexpreisPending={selectedData?.flexpreis?.status === "pending" && (
+                  isStreaming || (lazyDayRequest?.date === selectedDay && lazyDayRequest.status === "loading")
+                )}
+                flexLookupError={flexLookupError?.date === selectedDay ? flexLookupError.message : undefined}
             />
           </>
         )}

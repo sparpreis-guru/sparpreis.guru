@@ -4,7 +4,7 @@
 
 ## Funktionen
 
-- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung.
+- **Bestpreissuche:** Vergleicht Verbindungen an bis zu 30 ausgewählten Reisetagen. Filter für Wochentage, Reisezeiten, Alter, BahnCard, Klasse und Umstiege grenzen die Suche ein; Kalender und Tagesansicht zeigen Preise, Fahrtverläufe, Buchungslinks und – sofern vorhanden – die Preisentwicklung. Für einfache Fahrten lassen sich zusätzlich tatsächlich abgefragte Flexpreise auf einem festen Vergleichsreiseweg vergleichen. Weitere Angebote werden auf Wunsch in den Tagesdetails geprüft; eine vollständige Preisübersicht oder tarifliche Streckengültigkeit wird nicht zugesichert.
 - **Flexible Hin- und Rückfahrt:** Kombiniert günstige Fahrten anhand der gewünschten Aufenthaltsdauer. Ergebnisse erscheinen als Preismatrix und sortierbare Liste mit Gesamtpreis, Reisedauer und Hinweisen auf reine Direktverbindungen.
 - **Klassikmodus:** Eine kompakte Kalenderansicht im Stil des ursprünglichen [bahn.guru](https://github.com/juliuste/bahn.guru), erreichbar unter `/klassik`.
 - **Urlaubsfinder:** Sucht ab einem Startbahnhof parallel nach günstigen Zielen – optional mit Rückfahrt – und stellt die Treffer als Liste und auf einer Karte dar.
@@ -66,9 +66,23 @@ pnpm build:direct-connections
 | `ALLOWED_METRICS_IPS` | – | Erlaubte IP-Adressen oder CIDR-Netze, durch Kommas getrennt |
 | `LOG_LEVEL` | – | Aktiviert mit `debug` zusätzliche strukturierte Logs |
 
+`tagesbestpreis` und `recon` werden in getrennten Rate-Limitern verarbeitet. Die vorhandenen `RL_*`-Variablen konfigurieren den Tagesbestpreis-Limiter; für `recon` können dieselben Suffixe mit `RECON_RL_*` separat gesetzt werden, beispielsweise `RECON_RL_ROLLING_LIMIT_COUNT`. Ohne eigenen Wert übernimmt der recon-Limiter die entsprechende `RL_*`-Einstellung. Standardmäßig gelten für beide Budgets jeweils 30 Starts pro 60 Sekunden.
+
 ## Monitoring
 
 Prometheus-Metriken stehen unter `/api/metrics` bereit. In Produktion müssen dafür `METRICS_API_KEY` und `ALLOWED_METRICS_IPS` gesetzt sein; der Zugriff erfordert sowohl einen gültigen Bearer-Token als auch eine freigegebene IP-Adresse.
+
+Die bestehenden Gesamtmetriken bleiben erhalten. Zusätzlich werden die Preisabfragen nach `endpoint="tagesbestpreis"`, `"recon"` und `"fahrplan"` aufgeschlüsselt:
+
+| Metrik | Bedeutung |
+| --- | --- |
+| `bahn_api_requests_by_endpoint_total{endpoint,status}` | Ausgeführte Versuche je Endpunkt und HTTP-Status |
+| `bahn_api_response_time_by_endpoint_ms{endpoint}` | Histogramm der Dauer je Versuch bis zur HTTP-Antwort oder zum Verbindungsfehler, ohne Queue-Wartezeit |
+| `bahn_api_rate_limits_by_endpoint_total{endpoint}` | HTTP-429-Antworten je Endpunkt |
+| `bahn_api_network_errors_total{endpoint}` | Fehlgeschlagene Verbindungsversuche ohne HTTP-Antwort, einschließlich Timeouts |
+| `flexpreis_cache_hits_total{kind}` / `flexpreis_cache_misses_total{kind}` | Tatsächliche Cache-Nutzung für `kind="offer"` oder `"timetable"` |
+
+Jeder ausgeführte Versuch zählt genau einmal, auch bei Wiederholungen nach HTTP 429. Netzwerkfehler erhalten in den Statuszählern den Wert `status="network_error"`, keinen erfundenen HTTP-500-Status. Die Endpunktmetriken sind separate Reihen; sie werden nicht zu den Gesamtmetriken addiert. Flexpreis-Cache-Zugriffe fließen auch in `cache_hits_total` beziehungsweise `cache_misses_total` ein. Reine Cache-Prüfungen für Fortschrittsschätzungen und zusammengeführte parallele Angebotsabfragen erhöhen diese Zähler nicht. Stationsabfragen behalten ihre eigenen `station_search_*`-Metriken.
 
 ## Technischer Überblick
 

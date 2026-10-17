@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { ArrowLeftRight, Ticket, MapPin, Calendar, AlertTriangle, Check, CheckCircle, Lightbulb, Moon, Sparkles } from "lucide-react"
+import { ArrowLeftRight, Search, MapPin, Calendar, AlertTriangle, Check, CheckCircle, Lightbulb, Moon, Sparkles } from "lucide-react"
+import { handleStationSuggestionKeyDown } from "@/components/search/station-suggestion-navigation"
 import { logError } from "@/lib/shared/logger"
 import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
 import {
@@ -20,6 +21,7 @@ import {
   ConnectionOptionsModule,
   DateTimeControlStyle,
   DirectionTimeFiltersModule,
+  FlexPriceComparisonControl,
   TravelerOptionsModule,
   dateTimeControlClass,
   searchControlClass,
@@ -135,6 +137,7 @@ interface SearchParams {
   ermaessigungArt?: string
   ermaessigungKlasse?: string
   klasse?: string
+  tarif?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string
@@ -242,6 +245,10 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const [ermaessigungArt, setErmaessigungArt] = useState(searchParams.ermaessigungArt || "KEINE_ERMAESSIGUNG")
   const [ermaessigungKlasse, setErmaessigungKlasse] = useState(searchParams.ermaessigungKlasse || "KLASSENLOS")
   const [klasse, setKlasse] = useState(searchParams.klasse || "KLASSE_2")
+  const hasReturnSearchParams = searchParams.rueckfahrt === "1"
+  const [tarif, setTarif] = useState(
+    hasReturnSearchParams ? "SPARPREIS" : searchParams.tarif === "FLEXPREIS" ? "FLEXPREIS" : "SPARPREIS"
+  )
   const [schnelleVerbindungen, setSchnelleVerbindungen] = useState(
     searchParams.schnelleVerbindungen === undefined || searchParams.schnelleVerbindungen === "1"
   )
@@ -249,8 +256,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   const [abfahrtBis, setAbfahrtBis] = useState(searchParams.abfahrtBis || "")
   const [ankunftAb, setAnkunftAb] = useState(searchParams.ankunftAb || "")
   const [ankunftBis, setAnkunftBis] = useState(searchParams.ankunftBis || "")
-  const hasReturnSearchParams = searchParams.rueckfahrt === "1"
   const [rueckfahrtAktiv, setRueckfahrtAktiv] = useState(hasReturnSearchParams)
+  const [timeFiltersResetKey, setTimeFiltersResetKey] = useState(0)
   const [timeFiltersOpen, setTimeFiltersOpen] = useState(Boolean(
     searchParams.abfahrtAb || searchParams.abfahrtBis || searchParams.ankunftAb || searchParams.ankunftBis ||
     searchParams.returnAbfahrtAb || searchParams.returnAbfahrtBis || searchParams.returnAnkunftAb || searchParams.returnAnkunftBis ||
@@ -485,59 +492,16 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     const setActiveIndex = type === 'start' ? setActiveStartSuggestionIndex : setActiveZielSuggestionIndex
     const selectSuggestion = type === 'start' ? selectStartSuggestion : selectZielSuggestion
 
-    const activateSuggestion = (index: number) => {
-      setActiveIndex(index)
-      window.requestAnimationFrame(() => {
-        document.getElementById(`${type}-suggestion-${index}`)?.scrollIntoView({ block: 'nearest' })
-      })
-    }
-
-    if (event.key === 'Escape') {
-      if (!isOpen) return
-      event.preventDefault()
-      setOpen(false)
-      setActiveIndex(-1)
-      return
-    }
-
-    if (event.key === 'Tab') {
-      setOpen(false)
-      setActiveIndex(-1)
-      return
-    }
-
-    if (suggestions.length === 0) return
-
-    if (event.key === 'ArrowDown') {
-      event.preventDefault()
-      setOpen(true)
-      activateSuggestion(activeIndex < suggestions.length - 1 ? activeIndex + 1 : 0)
-      return
-    }
-
-    if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setOpen(true)
-      activateSuggestion(activeIndex > 0 ? activeIndex - 1 : suggestions.length - 1)
-      return
-    }
-
-    if (isOpen && event.key === 'Home') {
-      event.preventDefault()
-      activateSuggestion(0)
-      return
-    }
-
-    if (isOpen && event.key === 'End') {
-      event.preventDefault()
-      activateSuggestion(suggestions.length - 1)
-      return
-    }
-
-    if (isOpen && event.key === 'Enter' && activeIndex >= 0) {
-      event.preventDefault()
-      selectSuggestion(suggestions[activeIndex])
-    }
+    handleStationSuggestionKeyDown({
+      event,
+      suggestions,
+      open: isOpen,
+      activeIndex,
+      onOpenChange: setOpen,
+      onActiveIndexChange: setActiveIndex,
+      onSelect: selectSuggestion,
+      getOptionId: (index) => `${type}-suggestion-${index}`,
+    })
   }
   
   // Close suggestions when clicking outside
@@ -634,6 +598,15 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       ? `Der Reisezeitraum ermöglicht höchstens ${returnFeasibility.maximumAvailableNights} ${returnFeasibility.maximumAvailableNights === 1 ? "Nacht" : "Nächte"}. Verlängere den Zeitraum oder reduziere die Mindestdauer.`
       : "Mit den gewählten Reisetagen und der Aufenthaltsdauer ist keine Hin- und Rückfahrt möglich."
 
+  const handleReturnModeChange = (nextActive: boolean) => {
+    if (nextActive && !rueckfahrtAktiv) {
+      setSelectedReturnWeekdays([...selectedWeekdays])
+      // Den nur für einfache Fahrten verfügbaren Flexpreisvergleich zurücksetzen.
+      setTarif("SPARPREIS")
+    }
+    setRueckfahrtAktiv(nextActive)
+  }
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (hasSearchConfigurationError || returnDetailsInvalid) return
@@ -658,6 +631,9 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     params.set("ermaessigungArt", ermaessigungArt)
     params.set("ermaessigungKlasse", ermaessigungKlasse)
     params.set("klasse", klasse)
+    // Nur den abweichenden Tarif in die URL schreiben, damit bestehende Links
+    // unverändert bleiben. Bei aktiver Rückfahrt gilt immer der Sparpreis.
+    if (tarif === "FLEXPREIS" && !rueckfahrtAktiv) params.set("tarif", tarif)
     if (schnelleVerbindungen) params.set("schnelleVerbindungen", "1")
     if (abfahrtAb) params.set("abfahrtAb", abfahrtAb)
     if (abfahrtBis) params.set("abfahrtBis", abfahrtBis)
@@ -710,6 +686,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   }
 
   const handleReset = () => {
+    setTimeFiltersResetKey(current => current + 1)
     const resetStart = defaultSearchStart
     setStart("")
     setStartId("")
@@ -721,6 +698,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     setErmaessigungArt("KEINE_ERMAESSIGUNG")
     setErmaessigungKlasse("KLASSENLOS")
     setKlasse("KLASSE_2")
+    setTarif("SPARPREIS")
     setSchnelleVerbindungen(true)
     setUmstiegsOption("alle")
     setAbfahrtAb("")
@@ -817,21 +795,16 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
             <div className="grid grid-cols-2 rounded-lg bg-gray-200/70 p-1" role="group" aria-label="Reiseart wählen">
               <button
                 type="button"
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${!rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
-                onClick={() => setRueckfahrtAktiv(false)}
+                className={`min-h-11 rounded-md px-3 py-2 text-sm font-semibold transition ${!rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                onClick={() => handleReturnModeChange(false)}
                 aria-pressed={!rueckfahrtAktiv}
               >
                 Einfache Fahrt
               </button>
               <button
                 type="button"
-                className={`rounded-md px-3 py-2 text-sm font-semibold transition ${rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
-                onClick={() => {
-                  if (!rueckfahrtAktiv) {
-                    setSelectedReturnWeekdays([...selectedWeekdays])
-                  }
-                  setRueckfahrtAktiv(true)
-                }}
+                className={`min-h-11 rounded-md px-3 py-2 text-sm font-semibold transition ${rueckfahrtAktiv ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"}`}
+                onClick={() => handleReturnModeChange(true)}
                 aria-pressed={rueckfahrtAktiv}
               >
                 Hin &amp; Rückfahrt
@@ -1032,7 +1005,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
               <fieldset className="min-w-0 rounded-lg border border-gray-200 bg-white p-3">
                 <legend className="sr-only">Aufenthaltsdauer</legend>
                 <div className="mb-3 flex items-start gap-3">
-                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-violet-100 text-violet-700">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-blue-100 text-blue-700">
                     <Moon className="h-4 w-4" />
                   </span>
                   <div>
@@ -1129,10 +1102,11 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
 
           <div className="order-5 mt-3">
             <DirectionTimeFiltersModule
+              key={timeFiltersResetKey}
               open={timeFiltersOpen}
               onOpenChange={setTimeFiltersOpen}
               includeReturn={rueckfahrtAktiv}
-              title="Reisezeiten"
+              title="Reisetage & Uhrzeiten"
               summary={scheduleSummary}
               outboundContext={formatWeekdaySelection(selectedWeekdays.length)}
               returnContext={formatWeekdaySelection(selectedReturnWeekdays.length)}
@@ -1194,6 +1168,13 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           onTravelClassChange={setKlasse}
         />
 
+        {!rueckfahrtAktiv && (
+          <FlexPriceComparisonControl
+            tarif={tarif}
+            onTarifChange={setTarif}
+          />
+        )}
+
         <ConnectionOptionsModule
           open={connectionOptionsOpen}
           onOpenChange={setConnectionOptionsOpen}
@@ -1210,19 +1191,21 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
             key={rueckfahrtAktiv ? "return-search" : "single-search"}
             type="submit"
             disabled={hasSearchConfigurationError || returnDetailsInvalid}
-            className="w-full rounded-lg bg-blue-600 px-6 py-3 font-semibold text-white shadow-sm hover:bg-blue-700"
+            className="h-auto min-h-11 w-full whitespace-normal rounded-lg bg-blue-600 px-4 py-3 font-semibold text-white shadow-sm hover:bg-blue-700 sm:px-6"
           >
-            <Ticket className="mr-2 h-4 w-4" />
+            <Search className="h-4 w-4" aria-hidden="true" />
             {isSearching
               ? "Neue Suche starten"
               : rueckfahrtAktiv
                 ? "Günstigste Kombinationen suchen"
-                : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
+                : tarif === "FLEXPREIS"
+                  ? `Best- & Flexpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} vergleichen`
+                  : `Bestpreise für ${eligibleDates.length} ${eligibleDates.length === 1 ? "Tag" : "Tage"} suchen`}
           </Button>
         </div>
 
         <div className="flex flex-wrap items-center justify-between gap-3 px-1 text-xs">
-          <button type="button" onClick={handleReset} className="text-gray-500 underline-offset-4 hover:text-gray-800 hover:underline">
+          <button type="button" onClick={handleReset} className="min-h-11 rounded-md px-2 text-gray-600 underline-offset-4 hover:text-gray-800 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
             Angaben zurücksetzen
           </button>
         </div>

@@ -1,15 +1,37 @@
 "use client"
 
-import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, Loader2 } from "lucide-react"
+import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, CircleX, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
-import { logWarn } from "@/lib/shared/logger"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 import { createPriceBandScale, PRICE_BAND_STYLES } from "@/lib/train-search/price-bands"
-import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
+import { addDaysToDateKey, getEarliestSearchDateKey, getBerlinDateKey } from "@/lib/shared/berlin-date"
+import { getEligibleDateKeys, parseSearchWeekdays } from "@/lib/search/return-search-feasibility"
+import { formatCompactPrice, formatPrice } from "@/lib/shared/format-price"
+import { estimateUncachedSearchRequests } from "@/lib/search/search-workload"
+import { flexpreisCellAmount, flexpreisStatusLabel, type FlexpreisStatus, type FlexpreisDayData, type FlexpreisComparison } from "@/lib/search/flexpreis-comparison"
+import { FlexpreisBasisSelector } from "./flexpreis-basis-selector"
 
-const LOG_SCOPE = "bestpreissuche.price-calendar"
+/** A received discovery result is not a completed Flexpreis query. */
+export function getCalendarDayLoadingPhase({
+  hasResult, flexpreisStatus, isFlexpreisView, isStreaming, isExpectedDay,
+  isLazyLoading, showLazyLoading,
+}: {
+  hasResult: boolean
+  flexpreisStatus?: FlexpreisStatus
+  isFlexpreisView: boolean
+  isStreaming: boolean
+  isExpectedDay: boolean
+  isLazyLoading: boolean
+  showLazyLoading: boolean
+}): "discovery" | "flexpreis" | null {
+  const isActive = (isStreaming && isExpectedDay) || isLazyLoading
+  if (isActive && isFlexpreisView && flexpreisStatus === "pending") return "flexpreis"
+  if (!hasResult && ((isStreaming && isExpectedDay) || (isLazyLoading && showLazyLoading))) return "discovery"
+  return null
+}
+
 const LAZY_LOADING_INDICATOR_DELAY_MS = 150
 
 function useDelayedLoadingIndicator(active: boolean, requestKey: string) {
@@ -41,6 +63,7 @@ interface IntervalData {
 }
 
 interface PriceData {
+  flexpreis?: FlexpreisDayData
   preis: number
   info: string
   abfahrtsZeitpunkt: string
@@ -52,7 +75,22 @@ interface PriceResults {
   [date: string]: PriceData
 }
 
+// Im Flexpreis-Modus bestimmt der Tagestarif Anzeige, Farbskala und
+// Bestpreis-Markierung. Tage ohne ermittelten Flexpreis gelten als Tage ohne
+// Preis, damit nie ein Sparpreis als Flexpreis erscheint.
+function applyFlexpreis(results: PriceResults, basisId?: string): PriceResults {
+  const mapped: PriceResults = {}
+  for (const [date, data] of Object.entries(results)) {
+    mapped[date] = date === "_meta" ? data : { ...data, preis: flexpreisCellAmount(data.flexpreis, basisId) ?? 0 }
+  }
+  return mapped
+}
+
 interface PriceCalendarProps {
+  autoScrollOnSearchStart?: boolean
+  isFlexBasisLoading?: boolean
+  flexComparison?: FlexpreisComparison
+  onFlexBasisChange?: (id: string) => void
   results: PriceResults
   onDayClick: (date: string, data: PriceData) => void
   startStation?: { name: string; id: string }
@@ -72,6 +110,7 @@ interface PriceCalendarProps {
   } | null
   onRequestDay?: (date: string) => void
   canRequestAdditionalDays?: boolean
+  tarif?: string
 }
 
 // Wochentage so anpassen, dass Montag links steht
@@ -92,12 +131,14 @@ const months = [
 ]
 
 export function PriceCalendar({
-  results,
+  autoScrollOnSearchStart = true,
+  isFlexBasisLoading = false,
+  results: rawResults,
   onDayClick,
   startStation,
   zielStation,
   searchParams,
-  isStreaming,
+  isStreaming = false,
   expectedDays,
   sessionId,
   onCancelSearch,
@@ -107,7 +148,22 @@ export function PriceCalendar({
   lazyDayRequest,
   onRequestDay,
   canRequestAdditionalDays = false,
+  tarif,
+  flexComparison,
+  onFlexBasisChange,
 }: PriceCalendarProps) {
+  const isFlexpreis = tarif === "FLEXPREIS"
+  // Standardansicht je nach Modus: Im Preisvergleich ("Spar- & Flexpreise")
+  // beginnt der Kalender mit dem Flexpreis, in der reinen Sparpreis-Suche mit
+  // dem Sparpreis. Der Umschalter bleibt für manuelle Wechsel erhalten.
+  const [priceView, setPriceView] = useState<"sparpreis" | "flexpreis">(isFlexpreis ? "flexpreis" : "sparpreis")
+  const priceModeKey = JSON.stringify(searchParams)
+  useEffect(() => {
+    // Jede neue Suche startet mit der passenden Standardansicht. Eine laufende
+    // Nutzerwahl wird erst beim nächsten Suchlauf überschrieben.
+    setPriceView(isFlexpreis ? "flexpreis" : "sparpreis")
+  }, [priceModeKey, isFlexpreis])
+  const results = isFlexpreis && priceView === "flexpreis" ? applyFlexpreis(rawResults, flexComparison?.basis?.id) : rawResults
   const lazyDayRequestKey = lazyDayRequest?.date || ""
   const showLazyDayLoadingIndicator = useDelayedLoadingIndicator(
     lazyDayRequest?.status === "loading",
@@ -148,42 +204,11 @@ export function PriceCalendar({
   const getExpectedDateRange = () => {
     // Berechne erwartete Daten aus Wochentagen und Datumsbereich
     if (searchParams?.reisezeitraumAb && searchParams?.reisezeitraumBis) {
-      try {
-        // Parse weekdays from readable format or default to all days
-        let weekdays: number[]
-        if (searchParams.wochentage) {
-          const decoded = decodeURIComponent(searchParams.wochentage)
-          if (decoded.startsWith('[')) {
-            // Old JSON format
-            weekdays = JSON.parse(decoded)
-          } else {
-            // New readable format: "1,2,3,4,5"
-            weekdays = decoded.split(',').map(Number).filter(n => !isNaN(n) && n >= 0 && n <= 6)
-          }
-        } else {
-          // No weekdays param = all days
-          weekdays = [1, 2, 3, 4, 5, 6, 0]
-        }
-        
-        const startDate = new Date(searchParams.reisezeitraumAb)
-        const endDate = new Date(searchParams.reisezeitraumBis)
-        const expectedDates: string[] = []
-        
-        for (let d = new Date(startDate); d <= endDate && expectedDates.length < 30; d.setDate(d.getDate() + 1)) {
-          if (weekdays.includes(d.getDay())) {
-            expectedDates.push(formatDateKey(d))
-          }
-        }
-        
-        return expectedDates.sort()
-      } catch (error) {
-        logWarn(LOG_SCOPE, "Could not calculate expected dates from weekdays", {
-          fromDate: searchParams?.reisezeitraumAb,
-          toDate: searchParams?.reisezeitraumBis,
-          weekdays: searchParams?.wochentage,
-          error: error instanceof Error ? error.message : error,
-        })
-      }
+      return getEligibleDateKeys(
+        searchParams.reisezeitraumAb,
+        searchParams.reisezeitraumBis,
+        parseSearchWeekdays(searchParams.wochentage)
+      ).slice(0, 30)
     }
     
     return dates
@@ -216,6 +241,33 @@ export function PriceCalendar({
   const prices = Object.values(results)
     .map((r) => r.preis)
     .filter((p) => p > 0)
+
+  const hasFlexPriceResult = Object.values(rawResults).some(
+    (result) => Boolean(flexpreisCellAmount(result.flexpreis, flexComparison?.basis?.id))
+  )
+  const allFlexPricesUnavailable = isFlexpreis && priceView === "flexpreis" && !isStreaming && resultDates.length > 0 && !hasFlexPriceResult
+  const hasUnavailableFlexPrices = isFlexpreis && priceView === "flexpreis" && resultDates.some((dateKey) => {
+    const result = rawResults[dateKey]
+    return Boolean(
+      result &&
+      result.preis > 0 &&
+      !flexpreisCellAmount(result.flexpreis, flexComparison?.basis?.id)
+    )
+  })
+  const activePriceLabel = priceView === "flexpreis" ? "Flexpreis der Vergleichsverbindung" : "Bestpreis"
+  const activeBindingLabel = priceView === "flexpreis" ? "ohne Zugbindung" : "gefundener Ticketpreis"
+  const selectedClassLabel = searchParams?.klasse === "KLASSE_1" ? "1. Klasse" : "2. Klasse"
+  const selectedAgeLabel = {
+    KIND: "Kind",
+    JUGENDLICHER: "Jugendlicher",
+    ERWACHSENER: "Erwachsener",
+    SENIOR: "Senior",
+  }[searchParams?.alter as string] || "Reisender"
+  const selectedDiscountLabel = searchParams?.ermaessigungArt === "BAHNCARD25"
+    ? "BahnCard 25"
+    : searchParams?.ermaessigungArt === "BAHNCARD50"
+      ? "BahnCard 50"
+      : "keine BahnCard"
 
   const priceScale = createPriceBandScale(prices)
   const minPrice = priceScale.min
@@ -274,8 +326,10 @@ export function PriceCalendar({
   }
 
   const handleDayClick = (dateKey: string, priceData: PriceData | undefined) => {
-    if (priceData && priceData.preis > 0) {
-      onDayClick(dateKey, priceData)
+    if (rawResults[dateKey]) {
+      // Bewusst der unveränderte Eintrag: die Tagesansicht listet die
+      // Sparpreise der einzelnen Verbindungen.
+      onDayClick(dateKey, rawResults[dateKey])
     }
   }
 
@@ -284,14 +338,18 @@ export function PriceCalendar({
     : expectedDateRange.length > 0
       ? expectedDateRange.length
       : (searchParams?.dayLimit ? parseInt(searchParams.dayLimit) : resultDates.length)
-  const completedDays = expectedDateRange.length > 0
-    ? expectedDateRange.filter(date => results[date]?.preis !== undefined).length
-    : Math.min(totalDays, Object.values(results).filter(r => r && r.preis !== undefined).length)
+  const completedDays = expectedDateRange.filter(date => {
+    const result = rawResults[date]
+    return isFlexpreis ? Boolean(result?.flexpreis && result.flexpreis.status !== "pending") : result?.preis !== undefined
+  }).length
   const isCompleteNow = totalDays > 0 && completedDays >= totalDays
   const queueStatus = useSearchQueueStatus({
     sessionId,
-    isActive: Boolean(isStreaming && !isCompleteNow),
-    remainingRequests: Math.max(0, totalDays - completedDays),
+    isActive: Boolean(isStreaming),
+    remainingRateLimitedRequests: estimateUncachedSearchRequests(
+      Math.max(0, totalDays - completedDays),
+      isFlexpreis ? "FLEXPREIS" : "SPARPREIS"
+    ),
     searchType: "bestpreissuche",
   })
 
@@ -300,6 +358,7 @@ export function PriceCalendar({
   return (
     <>
       <SearchProgressPanel
+        autoScrollOnStart={autoScrollOnSearchStart}
         isActive={Boolean(isStreaming)}
         completedItems={completedDays}
         totalItems={totalDays}
@@ -314,8 +373,8 @@ export function PriceCalendar({
       {/* Calendar Header und Legende */}
       <div className="mt-4 overflow-hidden border-y border-gray-200 bg-white sm:rounded-lg sm:border sm:shadow-sm">
         {startStation && zielStation && (
-          <header className="flex items-start justify-between gap-2 border-b border-blue-100 bg-blue-50/70 px-4 py-4 sm:items-center sm:gap-3 sm:px-5">
-            <div className="min-w-0 flex-1">
+          <header className="flex flex-wrap items-start justify-between gap-x-2 gap-y-3 border-b border-blue-100 bg-blue-50/70 px-4 py-4 sm:flex-nowrap sm:items-center sm:gap-3 sm:px-5">
+            <div className="min-w-[9rem] flex-1">
               <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Einfache Fahrt</div>
               <h2 className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-base text-blue-950 sm:flex-nowrap sm:text-lg">
                 <span className="min-w-0 truncate font-bold">{startStation.name}</span>
@@ -327,21 +386,30 @@ export function PriceCalendar({
               <p className="mt-1 text-xs text-blue-700">{resultDates.length} Reisetage ausgewertet</p>
             </div>
             <div
-              className={`w-[7.5rem] shrink-0 self-start rounded-lg border px-2 py-1.5 sm:w-40 sm:self-center sm:px-4 sm:py-2 sm:text-right ${
+                className={`w-max shrink-0 self-start rounded-lg border px-2 py-1.5 sm:self-center sm:px-4 sm:py-2 sm:text-right ${
                 minPrice > 0
                   ? "border-green-200 bg-green-50 shadow-sm"
-                  : "border-blue-100 bg-white/60"
+                  : allFlexPricesUnavailable
+                    ? "border-amber-200 bg-amber-50"
+                    : "border-blue-100 bg-white/60"
               }`}
             >
               {minPrice > 0 ? (
                 <>
-                  <div className="text-[10px] font-medium text-green-700 sm:text-xs">Günstigster Preis</div>
-                  <div className="mt-0.5 flex items-baseline gap-1 text-green-800 sm:justify-end">
-                    <span className="text-xs font-semibold sm:text-sm">ab</span>
-                    <span className="text-xl font-bold tabular-nums sm:text-2xl">
-                      {minPrice.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} €
+                  <div className="whitespace-nowrap text-[10px] font-medium leading-3 text-green-700 sm:text-xs sm:leading-4">
+                    {priceView === "flexpreis" ? "Niedrigster Vergleichspreis" : "Günstigster Bestpreis"}
+                  </div>
+                  <div className="mt-0.5 flex min-w-0 flex-nowrap items-baseline gap-x-1 text-green-800 sm:justify-end">
+                    {priceView !== "flexpreis" && <span className="text-xs font-semibold sm:text-sm">ab</span>}
+                    <span className="shrink-0 whitespace-nowrap text-xl font-bold tabular-nums sm:text-2xl">
+                      {formatPrice(minPrice)}
                     </span>
                   </div>
+                </>
+              ) : allFlexPricesUnavailable ? (
+                <>
+                  <div className="text-[10px] font-semibold text-amber-700 sm:text-xs">Kein Vergleichspreis</div>
+                  <div className="mt-1 text-xs leading-4 text-gray-600">Bestpreise bleiben auswählbar.</div>
                 </>
               ) : (
                 <>
@@ -356,13 +424,49 @@ export function PriceCalendar({
             </div>
           </header>
         )}
-        <div className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-5">
-          <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
-            <CalendarDays className="h-4 w-4 text-blue-700" />
-            Preiskalender
-          </h2>
-          <span className="text-xs font-medium text-blue-700">Tag für Verbindungen auswählen</span>
+        <div className="flex flex-col gap-2 border-b border-gray-200 bg-white px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+          <div className="flex min-w-0 items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-base font-semibold text-blue-950">
+              <CalendarDays className="h-4 w-4 text-blue-700" />
+              Preiskalender
+            </h2>
+            <span className="text-right text-xs font-medium text-blue-700 sm:hidden">
+              {priceView === "flexpreis" ? "Flexpreis-Vergleich" : "Bestpreise"}
+            </span>
+          </div>
+          <div className="flex items-center justify-between gap-3">
+            <span className="hidden text-xs font-medium text-blue-700 sm:inline">
+              {priceView === "flexpreis" ? "Flexpreis-Vergleich" : "Bestpreise"}
+            </span>
+            {isFlexpreis && (
+              <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5" role="group" aria-label="Preisansicht wählen">
+                <button
+                  type="button"
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors sm:px-3 ${
+                    priceView === "sparpreis" ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
+                  }`}
+                  aria-pressed={priceView === "sparpreis"}
+                  onClick={() => setPriceView("sparpreis")}
+                >
+                    Bestpreis
+                </button>
+                <button
+                  type="button"
+                  className={`rounded px-2.5 py-1 text-xs font-semibold transition-colors sm:px-3 ${
+                    priceView === "flexpreis" ? "bg-white text-blue-700 shadow-sm" : "text-gray-600 hover:text-gray-900"
+                  }`}
+                  aria-pressed={priceView === "flexpreis"}
+                  onClick={() => setPriceView("flexpreis")}
+                >
+                  Flexpreis
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+        {isFlexpreis && priceView === "flexpreis" && (
+          <FlexpreisBasisSelector comparison={flexComparison} isLoading={isStreaming || isFlexBasisLoading} onChange={onFlexBasisChange} />
+        )}
         {/* Calendar Header */}
         <div className="flex items-center justify-between p-4 border-b">
           <Button
@@ -399,8 +503,8 @@ export function PriceCalendar({
                     className={`inline-flex items-center gap-1 rounded border px-2 py-1 font-medium ${band === "best" ? "min-w-[7.5rem] justify-center" : ""} ${style.background} ${style.border} ${style.text}`}
                   >
                     {style.label}
-                    {band === "best" && ` ${minPrice} €`}
-                    {band === "high" && ` bis ${maxPrice} €`}
+                    {band === "best" && ` ${formatPrice(minPrice)}`}
+                    {band === "high" && ` bis ${formatPrice(maxPrice)}`}
                   </span>
                 )
               })
@@ -429,10 +533,18 @@ export function PriceCalendar({
           <div className="grid grid-cols-7 gap-1">
             {calendarDays.map((day) => {
               const dateKey = formatDateKey(day)
+              const rawPriceData = rawResults[dateKey]
               const priceData = results[dateKey]
+              // Preis der aktuell gewählten Ansicht (Sparpreis oder Flexpreis).
+              // Die separate Konstante vermeidet Non-Null-Assertions und macht
+              // die Zustände im Kalender eindeutig.
+              const cellPrice = priceData?.preis ?? 0
               const isCurrentMonth = day.getMonth() === currentMonth.getMonth()
-              const isToday = dateKey === new Date().toISOString().split("T")[0]
-              const hasPrice = priceData && priceData.preis > 0
+              const isToday = dateKey === getBerlinDateKey()
+              const hasSparPrice = Boolean(rawPriceData && rawPriceData.preis > 0)
+              const hasFlexPrice = Boolean(flexpreisCellAmount(rawPriceData?.flexpreis, flexComparison?.basis?.id))
+              const hasPrice = cellPrice > 0
+              const flexPriceUnavailable = isFlexpreis && priceView === "flexpreis" && Boolean(rawPriceData?.flexpreis) && !hasFlexPrice
               const hasResult = !!priceData
               const hasMultipleOptions = priceData?.allIntervals && priceData.allIntervals.length > 1
               
@@ -443,134 +555,165 @@ export function PriceCalendar({
               const showLazyPending = isLazyPending && showLazyDayLoadingIndicator
               const lazyRequestFailed = lazyDayRequest?.date === dateKey && lazyDayRequest.status === "error"
               const isInitialPending = Boolean(isStreaming && isExpectedDay && !hasResult)
-              const isPendingDay = isInitialPending || showLazyPending
+              const loadingPhase = getCalendarDayLoadingPhase({
+                hasResult, flexpreisStatus: rawPriceData?.flexpreis?.status,
+                isFlexpreisView: isFlexpreis && priceView === "flexpreis",
+                isStreaming, isExpectedDay, isLazyLoading: isLazyPending, showLazyLoading: showLazyPending,
+              })
+              const isPendingDay = loadingPhase !== null
+              const flexStatusText = rawPriceData?.flexpreis?.status === "pending" && !isPendingDay
+                ? "Nicht geprüft"
+                : flexpreisStatusLabel(rawPriceData?.flexpreis?.status)
               const canRequestDay = canRequestAdditionalDays && isRequestableDay && !hasResult && !isInitialPending && !isLazyPending && Boolean(onRequestDay)
               const showRequestPrompt = canRequestAdditionalDays && isRequestableDay && !hasResult && !isInitialPending && !showLazyPending && Boolean(onRequestDay)
+              const canOpenDay = hasPrice || hasSparPrice || (isFlexpreis && Boolean(rawPriceData))
+              const isInteractiveDay = canOpenDay || canRequestDay
+              const formattedCellDate = day.toLocaleDateString("de-DE", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+              })
+              const cellAriaLabel = isPendingDay
+                ? `${formattedCellDate}: ${loadingPhase === "flexpreis" ? "Flexpreis wird abgefragt" : "Preis wird abgefragt"}`
+                : flexPriceUnavailable
+                ? `${formattedCellDate}: ${flexStatusText}`
+                : hasPrice && priceView === "flexpreis"
+                  ? `${formattedCellDate}: Flexpreis ${formatPrice(cellPrice)}`
+                  : hasPrice
+                    ? `${formattedCellDate}: Bestpreis ${formatPrice(cellPrice)}`
+                    : canRequestDay
+                      ? `${formattedCellDate}: Preis abfragen`
+                      : formattedCellDate
 
               return (
-                <div
+                <button
+                  type="button"
                   key={dateKey}
+                  disabled={!isInteractiveDay}
+                  aria-label={cellAriaLabel}
+                  title={hasPrice ? formatPrice(cellPrice) : undefined}
+                  aria-busy={isPendingDay}
                   className={`
-                    relative h-[90px] sm:h-[100px] p-1 sm:p-3 border rounded-lg transition-all hover:shadow-sm flex flex-col justify-between
+                    relative flex h-[90px] min-w-0 w-full flex-col justify-between rounded-lg border px-0.5 py-1 text-left sm:h-[100px] sm:p-3
                     ${!isCurrentMonth ? "opacity-30" : ""}
                     ${isToday ? "ring-2 ring-blue-500" : ""}
                     ${selectedDay === dateKey ? "ring-2 ring-blue-700 ring-offset-2" : ""}
-                    ${hasPrice ? getPriceBg(priceData.preis) : 
+                    ${isPendingDay ? "bg-blue-50 border-blue-200" :
+                      hasPrice ? getPriceBg(cellPrice) :
+                      flexPriceUnavailable ? "border-gray-200 bg-gray-50" :
                       hasResult ? "bg-gray-50" : 
-                      isPendingDay ? "bg-blue-50 border-blue-200" :
                       showRequestPrompt ? "border-dashed border-blue-200 bg-white text-blue-700" : "bg-white"}
-                    ${canRequestDay ? "cursor-pointer hover:border-blue-300 hover:bg-blue-50/60" : ""}
-                    ${hasPrice ? "cursor-pointer hover:shadow-md hover:scale-105" : ""}
+                    ${canRequestDay ? "cursor-pointer" : ""}
+                    ${canOpenDay ? "cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-600 focus-visible:ring-offset-2" : ""}
+                    ${!isInteractiveDay ? "cursor-default" : ""}
                   `}
                   onClick={() => {
-                    if (hasPrice) {
-                      handleDayClick(dateKey, priceData)
+                    if (canOpenDay) {
+                      handleDayClick(dateKey, rawPriceData)
                     } else if (canRequestDay) {
                       onRequestDay?.(dateKey)
                     }
                   }}
                 >
                   {/* Day Number und Multiple options indicator */}
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="mb-1 flex shrink-0 items-center justify-between">
                     <div className="text-xs sm:text-sm font-medium text-gray-900">{day.getDate()}</div>
-                    {hasMultipleOptions && (
-                      <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">{priceData.allIntervals!.length}</span>
-                    )}
+                    {priceView !== "flexpreis" && hasMultipleOptions && priceData.allIntervals ? (
+                      <span className="text-[10px] sm:text-xs bg-blue-100 text-blue-600 px-1 rounded ml-1">{priceData.allIntervals.length}</span>
+                    ) : null}
                   </div>
 
-                  {/* Price nur anzeigen, wenn Ergebnis vorhanden */}
-                  {hasResult && (
-                    <div className="space-y-1 flex flex-col h-full justify-between pb-5">
-                      <div>
-                        <div className={`text-xs sm:text-sm font-bold ${getPriceColor(priceData.preis)}`}> 
-                          {priceData.preis > 0 && (
-                            <>
-                              <span className="block sm:hidden">{Math.round(priceData.preis)}€</span>
-                              <span className="hidden sm:block">{priceData.preis}€</span>
-                            </>
-                          )}
-                        </div>
-                        {/* Price indicators */}
-                        {priceData.preis > 0 && (
-                          <div className="text-[10px] sm:text-xs">
-                            {priceData.preis === minPrice && <span>🏆</span>}
-                            {priceData.preis === maxPrice && priceScale.getBand(priceData.preis) === "high" && <span>💸</span>}
+                  <div className="flex min-h-0 flex-1 flex-col">
+                    {isPendingDay ? (
+                      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden text-blue-600">
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                        <span className="text-center text-[10px] font-medium leading-tight sm:text-xs">
+                          <span className="sm:hidden">{loadingPhase === "flexpreis" ? "Flex" : "Preis"}</span>
+                          <span className="hidden sm:inline">{loadingPhase === "flexpreis" ? "Flexpreis" : "Preis"}<br />wird geprüft</span>
+                        </span>
+                      </div>
+                    ) : hasResult ? (
+                      <div className="flex min-h-0 flex-1 flex-col justify-between gap-1">
+                        <div>
+                          <div className={`text-xs sm:text-sm font-bold ${hasPrice ? getPriceColor(cellPrice) : "text-amber-700"}`}>
+                            {cellPrice > 0 && (
+                              <>
+                                <span className="block whitespace-nowrap text-[11px] tracking-tight tabular-nums sm:text-sm md:hidden">{formatCompactPrice(cellPrice)}</span>
+                                <span className="hidden whitespace-nowrap md:block">{formatPrice(cellPrice)}</span>
+                              </>
+                            )}
+                            {flexPriceUnavailable && (
+                              <>
+                                <span className="block text-[10px] font-medium leading-3.5 text-gray-600 sm:text-xs">
+                                  {flexStatusText}
+                                </span>
+                              </>
+                            )}
                           </div>
-                        )}
-                      </div>
-                      {/* Departure time immer unten, absolut positioniert */}
-                      {priceData.preis > 0 && priceData.abfahrtsZeitpunkt && priceData.ankunftsZeitpunkt && (
-                        <div className="absolute left-1 right-1 bottom-1 text-[10px] sm:text-xs text-gray-500 text-right pointer-events-none max-w-full flex flex-col items-end">
-                          {/* Mobil: Zwei Zeilen */}
-                          <span className="block sm:hidden truncate">
-                            {new Date(priceData.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                          <span className="block sm:hidden truncate">
-                            <span className="mx-1">→</span>
-                            {new Date(priceData.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                          </span>
-                          {/* Desktop: Eine Zeile */}
-                          <span className="hidden sm:inline truncate whitespace-nowrap">
-                            {new Date(priceData.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                            <span className="mx-1">→</span>
-                            {new Date(priceData.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
-                          </span>
                         </div>
-                      )}
-                    </div>
-                  )}
-                  
-                  {/* Pending indicator for days being searched */}
-                  {isPendingDay && (
-                    <div className="flex flex-col items-center justify-center h-full text-blue-600">
-                      <Loader2 className="mb-1 h-4 w-4 animate-spin" />
-                      <div className="text-[9px] sm:text-xs font-medium text-center max-w-full sm:max-w-none truncate whitespace-pre-line">
-                        <span className="block sm:hidden">Wird<br/>abgefragt</span>
-                        <span className="hidden sm:inline">Wird abgefragt</span>
+                        {priceView === "sparpreis" && hasSparPrice && priceData.abfahrtsZeitpunkt && priceData.ankunftsZeitpunkt ? (
+                          <div className="pointer-events-none mt-auto flex max-w-full flex-col items-end text-right text-[10px] text-gray-500 sm:text-xs">
+                            {/* Mobil: Zwei Zeilen */}
+                            <span className="block sm:hidden truncate">
+                              {new Date(priceData.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <span className="block sm:hidden truncate">
+                              <span className="mx-1">→</span>
+                              {new Date(priceData.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            {/* Desktop: Eine Zeile */}
+                            <span className="hidden sm:inline truncate whitespace-nowrap">
+                              {new Date(priceData.abfahrtsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                              <span className="mx-1">→</span>
+                              {new Date(priceData.ankunftsZeitpunkt).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                        ) : null}
                       </div>
-                    </div>
-                  )}
+                    ) : showRequestPrompt ? (
+                      <span
+                        className={`mx-auto my-auto px-0.5 py-1 text-center text-[10px] font-medium ${
+                          lazyRequestFailed
+                            ? "text-red-700 opacity-80"
+                            : "text-blue-700 opacity-50"
+                        }`}
+                      >
+                        <span className="sm:hidden">{lazyRequestFailed ? "Erneut" : "Abfragen"}</span>
+                        <span className="hidden sm:inline">{lazyRequestFailed ? "Erneut versuchen" : "Preis abfragen"}</span>
+                      </span>
+                    ) : null}
+                  </div>
 
-                  {showRequestPrompt && (
-                    <button
-                      type="button"
-                      disabled={!canRequestDay}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        if (canRequestDay) onRequestDay?.(dateKey)
-                      }}
-                      className={`mx-auto my-auto px-0.5 py-1 text-center text-[9px] font-medium transition-opacity sm:text-[10px] ${
-                        lazyRequestFailed
-                          ? "text-red-700 opacity-80 hover:opacity-100"
-                          : "text-blue-700 opacity-50 hover:opacity-100"
-                      }`}
-                      title={lazyRequestFailed ? lazyDayRequest?.message || "Preisabfrage erneut versuchen" : `Preis für den ${dateKey} abfragen`}
-                    >
-                      <span className="sm:hidden">{lazyRequestFailed ? "Erneut" : "Abfragen"}</span>
-                      <span className="hidden sm:inline">{lazyRequestFailed ? "Erneut versuchen" : "Preis abfragen"}</span>
-                    </button>
-                  )}
-
-                  {/* Click indicator for bookable days entfernt */}
                   {/* Indikator für Tage ohne Fahrten: nur für geprüfte Tage */}
-                  {hasResult && priceData?.preis === 0 && (
-                    <div className="absolute bottom-1 right-1">
-                      <span className="text-gray-400 text-xs select-none">❌</span>
+                  {hasResult && !isPendingDay && !flexPriceUnavailable && cellPrice === 0 && (
+                    <div className="absolute bottom-1 right-1 text-gray-400">
+                      <CircleX className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only">Keine Verbindung verfügbar</span>
                     </div>
                   )}
-                </div>
+                </button>
               )
             })}
           </div>
         </div>
 
-        <div className="border-t bg-gray-50 p-4 text-center text-xs text-gray-600">
-          {canRequestAdditionalDays
-            ? "Wähle einen Tag mit Preis oder frage einen ungeladenen Tag bis zu zwei Wochen vor oder nach dem Suchzeitraum ab"
-            : isStreaming
-              ? "Weitere Tage können abgefragt werden, sobald die ursprüngliche Suche vollständig geladen ist."
-              : "Weitere Tage können erst nach einer vollständig abgeschlossenen Suche abgefragt werden."}
+        <div className="border-t bg-blue-50 px-4 py-3 text-left text-xs text-blue-800 sm:px-5">
+          <p className="text-center font-semibold text-blue-900">
+            {activePriceLabel} · {selectedClassLabel} · {activeBindingLabel}
+            <span className="font-normal text-blue-700"> ({selectedAgeLabel} · {selectedDiscountLabel})</span>
+          </p>
+          <p className="mx-auto mt-1 max-w-3xl text-center leading-4">
+            {priceView === "flexpreis"
+              ? "Preise ausgewählter Verbindungen. Die Streckengültigkeit richtet sich nach dem Ticket."
+              : "Der Kalender zeigt pro Reisetag den günstigsten gefundenen Ticketpreis für deine Suche."}
+          </p>
+          {hasUnavailableFlexPrices && (
+            <p className="mx-auto mt-1 max-w-3xl text-center leading-4 text-blue-800">
+              Für einzelne Tage fehlt ein passender Vergleichstreffer. Details findest du beim jeweiligen Tag.
+            </p>
+          )}
         </div>
+
       </div>
 
     </>

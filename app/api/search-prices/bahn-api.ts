@@ -11,7 +11,9 @@ import { metricsCollector } from '@/app/api/metrics/collector'
 import { logDebug, logError, logWarn } from '@/lib/shared/logger'
 import { formatDateKey, generateConnectionId, passesTimeFilter } from './utils';
 import { fetchBahn } from './bahn-http'
+import { extractFlexpreisSources, type FlexpreisSource } from '@/lib/search/flexpreis-comparison'
 import { searchStations } from '@/app/api/station-search/search-stations'
+
 
 const LOG_SCOPE = "bestpreissuche.bahn"
 
@@ -155,16 +157,17 @@ function hasUsableIntervalTimes(data: { allIntervals?: Array<{ abfahrtsZeitpunkt
 }
 
 // Main API call function for best price search
-export async function getBestPrice(config: any): Promise<{ result: TrainResults | null; wasApiCall: boolean; recordedAt: number }> {
+export async function getBestPrice(config: any): Promise<{ result: TrainResults | null; wasApiCall: boolean; recordedAt: number; flexpreisSources?: FlexpreisSource[]; error?: true }> {
   const dateObj = config.anfrageDatum as Date
   const sessionId = config.sessionId // Session ID von der Hauptanfrage
   // Format date like the working curl: "2025-07-26T08:00:00"
   const datum = formatDateKey(dateObj) + "T08:00:00"
   const tag = formatDateKey(dateObj)
 
+  const isFlexpreis = config.tarif === "FLEXPREIS"
 
   // Cache-Key generieren (ohne maximaleUmstiege, da wir alle Verbindungen cachen)
-  const cacheKey = generateCacheKey({
+  const cacheKeyParams = {
     startStationId: config.startStationNormalizedId, // Verwende normalisierte ID
     zielStationId: config.zielStationNormalizedId,   // Verwende normalisierte ID
     date: tag,
@@ -174,7 +177,9 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     klasse: config.klasse,
     schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
     umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-  })
+  }
+  const cacheKey = generateCacheKey(cacheKeyParams)
+  const cacheWriteParams = cacheKeyParams
 
   // Prüfe Cache
   const cachedResult = getCachedResult(cacheKey)
@@ -183,7 +188,18 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     metricsCollector.recordCacheHit('connection')
     
     const cachedData = cachedResult.data[tag]
-    if (cachedData && cachedData.allIntervals && hasUsableIntervalTimes(cachedData)) {
+    if (Array.isArray(cachedData?.allIntervals) && cachedData.allIntervals.length === 0 &&
+      (!isFlexpreis || Array.isArray(cachedData.flexpreisSources))) {
+      return {
+        result: { [tag]: { preis: 0, info: cachedData.info, abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } },
+        wasApiCall: false, recordedAt: cachedResult.recordedAt ?? Date.now(),
+        flexpreisSources: isFlexpreis ? filterFlexpreisSources(cachedData.flexpreisSources || [], config) : undefined,
+      }
+    }
+    const missingCandidates = isFlexpreis && !Array.isArray(cachedData?.flexpreisSources)
+    if (missingCandidates) {
+      refreshMalformedCache = true
+    } else if (cachedData && cachedData.allIntervals && hasUsableIntervalTimes(cachedData)) {
       // Zeitfilterung auf gecachte Daten anwenden - KORRIGIERT mit Datum-Check!
       const filteredIntervals = cachedData.allIntervals.filter((interval: any) => {
         return passesTimeFilter(interval.abfahrtsZeitpunkt, interval.ankunftsZeitpunkt, {
@@ -221,6 +237,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         return {
           result: { [tag]: { preis: 0, info: "Keine Verbindungen im gewählten Zeitraum/mit gewählten Umstiegs-Optionen!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "", allIntervals: [] } },
           wasApiCall: false,
+          flexpreisSources: isFlexpreis ? filterFlexpreisSources(cachedData.flexpreisSources || [], config) : undefined,
           recordedAt: cachedResult.recordedAt ?? Date.now()
         }
       }
@@ -277,9 +294,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           priceHistory: dayPriceHistory
         }
       }
-      return { result: filteredResult, wasApiCall: false, recordedAt: cachedResult.recordedAt ?? Date.now() }
-    }
-    if (cachedData?.allIntervals && !hasUsableIntervalTimes(cachedData)) {
+      return { result: filteredResult, wasApiCall: false, recordedAt: cachedResult.recordedAt ?? Date.now(), flexpreisSources: isFlexpreis ? filterFlexpreisSources(cachedData.flexpreisSources || [], config) : undefined }
+    } else if (cachedData?.allIntervals && !hasUsableIntervalTimes(cachedData)) {
       refreshMalformedCache = true
       logDebug(LOG_SCOPE, "♻️ Connection cache entry has no journey times; refreshing from Bahn API", {
         ...routeContext(config, tag),
@@ -376,7 +392,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
   }
 
   const requestId = `${tag}-${config.startStationNormalizedId}-${config.zielStationNormalizedId}`
-  const apiCallStartTime = Date.now()
 
   try {
     // API-Call über globalen Rate Limiter
@@ -391,7 +406,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         requestId,
       })
       // Match the working curl headers exactly
-      const response = await fetchBahn("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
+      const response = await metricsCollector.measureBahnApiRequest('tagesbestpreis', () => fetchBahn("https://www.bahn.de/web/api/angebote/tagesbestpreis", {
         method: "POST",
         headers: {
           Accept: "application/json",
@@ -403,7 +418,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           Connection: "close",
         },
         body: JSON.stringify(requestBody),
-      })
+      }))
 
       if (!response.ok) {
         let errorText = ""
@@ -432,17 +447,16 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
             })
           }
         }
-        // Record failed API request
-        const apiDuration = Date.now() - apiCallStartTime
-        metricsCollector.recordBahnApiRequest(apiDuration, response.status)
-        
         // Return sentinel instead of throwing to keep logs clean; rate limiter interprets this
-        return { __httpStatus: response.status, __errorText: errorText.slice(0, 100) }
+        const retryAfterSeconds = Number(response.getHeader("retry-after"))
+        return {
+          __httpStatus: response.status,
+          __errorText: errorText.slice(0, 100),
+          __retryAfterMs: Number.isFinite(retryAfterSeconds)
+            ? Math.max(0, Math.ceil(retryAfterSeconds * 1000))
+            : 0,
+        }
       }
-
-      // Record successful API request
-      const apiDuration = Date.now() - apiCallStartTime
-      metricsCollector.recordBahnApiRequest(apiDuration, response.status)
 
       return await response.text()
     }, sessionId)
@@ -469,17 +483,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
     if (responseText.includes("Preisauskunft nicht möglich")) {
       logDebug(LOG_SCOPE, "ℹ️ Bahn price API has no price information for travel date", routeContext(config, tag))
       const result = { [tag]: { preis: 0, info: "Kein Bestpreis verfügbar!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "" } }
-      setCachedResult(cacheKey, result, {
-        startStationId: config.startStationNormalizedId,
-        zielStationId: config.zielStationNormalizedId,
-        date: tag,
-        alter: config.alter,
-        ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-        ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
-        klasse: config.klasse,
-        schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
-        umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-      })
+      setCachedResult(cacheKey, result, cacheWriteParams)
       return { result, wasApiCall: true, recordedAt: Date.now() }
     }
 
@@ -496,23 +500,13 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           ankunftsZeitpunkt: "",
         },
       }
-      return { result: errorResult, wasApiCall: true, recordedAt: Date.now() }
+      return { result: errorResult, wasApiCall: true, recordedAt: Date.now(), error: true }
     }
 
     if (!data || !data.intervalle) {
       logDebug(LOG_SCOPE, "ℹ️ Bahn price API response contained no intervals", routeContext(config, tag))
       const result = { [tag]: { preis: 0, info: "Keine Intervalle gefunden!", abfahrtsZeitpunkt: "", ankunftsZeitpunkt: "" } }
-      setCachedResult(cacheKey, result, {
-        startStationId: config.startStationNormalizedId,
-        zielStationId: config.zielStationNormalizedId,
-        date: tag,
-        alter: config.alter,
-        ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-        ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
-        klasse: config.klasse,
-        schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
-        umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-      })
+      setCachedResult(cacheKey, result, cacheWriteParams)
       return { result, wasApiCall: true, recordedAt: Date.now() }
     }
 
@@ -523,6 +517,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
 
   // Sammle alle Intervalle
   const finalAllIntervals: IntervalDetails[] = []
+  // Collect before price/partial-offer filtering: Flexpreise have their own fare validation.
+  const flexpreisSources = extractFlexpreisSources(data)
   let skippedTeilpreisOffers = 0
     
     for (const iv of data.intervalle) {
@@ -550,6 +546,12 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               ankunftsOrt: abschnitt.ankunftsOrt,
               abfahrtsOrtExtId: abschnitt.abfahrtsOrtExtId,
               ankunftsOrtExtId: abschnitt.ankunftsOrtExtId,
+              halte: Array.isArray(abschnitt.halte)
+                ? abschnitt.halte.map((halt: any) => ({
+                    name: halt.name,
+                    extId: halt.extId,
+                  }))
+                : undefined,
               verkehrsmittel: abschnitt.verkehrsmittel ? {
                 produktGattung: abschnitt.verkehrsmittel.produktGattung,
                 kategorie: abschnitt.verkehrsmittel.kategorie,
@@ -558,6 +560,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               } : undefined
             }))
             const info = abschnitte.map((a: IntervalAbschnitt) => `${a.abfahrtsOrt} → ${a.ankunftsOrt}`).join(' | ')
+            const transfers = Number(verbindung.verbindung.umstiegsAnzahl) || 0
             finalAllIntervals.push({
               preis: newPreis,
               abschnitte,
@@ -566,9 +569,10 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
               abfahrtsOrt: abschnitte[0].abfahrtsOrt,
               ankunftsOrt: abschnitte[abschnitte.length-1].ankunftsOrt,
               info,
-              umstiegsAnzahl: verbindung.verbindung.umstiegsAnzahl || 0,
+              umstiegsAnzahl: transfers,
               // Keine isCheapestPerInterval-Markierung hier - wird in route.ts gemacht
             })
+
           }
         }
       }
@@ -594,19 +598,8 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         },
       }
 
-      setCachedResult(cacheKey, result, {
-        startStationId: config.startStationNormalizedId,
-        zielStationId: config.zielStationNormalizedId,
-        date: tag,
-        alter: config.alter,
-        ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-        ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
-        klasse: config.klasse,
-        schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
-        umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-      })
-
-      return { result, wasApiCall: true, recordedAt: Date.now() }
+      setCachedResult(cacheKey, { [tag]: { ...result[tag], flexpreisSources } }, cacheWriteParams)
+      return { result, wasApiCall: true, recordedAt: Date.now(), flexpreisSources: isFlexpreis ? filterFlexpreisSources(flexpreisSources, config) : undefined }
     }
 
     // Erstelle vollständigen Cache-Eintrag mit ALLEN Verbindungen (ohne Markierung)
@@ -616,22 +609,12 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
         info: "",
         abfahrtsZeitpunkt: "",
         ankunftsZeitpunkt: "",
+        flexpreisSources,
         allIntervals: finalAllIntervals.sort((a, b) => a.preis - b.preis), // Sort by price
       },
     }
 
-    // Cache ALLE Daten (ohne Zeitfilter)
-    setCachedResult(cacheKey, fullResult, {
-      startStationId: config.startStationNormalizedId,
-      zielStationId: config.zielStationNormalizedId,
-      date: tag,
-      alter: config.alter,
-      ermaessigungArt: config.ermaessigungArt || "KEINE_ERMAESSIGUNG",
-      ermaessigungKlasse: config.ermaessigungKlasse || "KLASSENLOS",
-      klasse: config.klasse,
-      schnelleVerbindungen: Boolean(config.schnelleVerbindungen === true || config.schnelleVerbindungen === "true"),
-      umstiegszeit: (config.umstiegszeit && config.umstiegszeit !== "normal" && config.umstiegszeit !== "undefined") ? config.umstiegszeit : undefined,
-    })
+    setCachedResult(cacheKey, fullResult, cacheWriteParams)
 
     // Jetzt Zeitfilter für aktuelle Anfrage anwenden
     const timeFilteredIntervals = finalAllIntervals.filter(interval =>
@@ -688,7 +671,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           priceHistory: emptyDayHistory
         } 
       }
-      return { result, wasApiCall: true, recordedAt: Date.now() }
+      return { result, wasApiCall: true, recordedAt: Date.now(), flexpreisSources: isFlexpreis ? filterFlexpreisSources(flexpreisSources, config) : undefined }
     }
 
     // Lade Preishistorie für diesen Tag - NUR für die gefilterten Verbindungen
@@ -735,7 +718,7 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
       },
     }
 
-    return { result, wasApiCall: true, recordedAt: Date.now() }
+    return { result, wasApiCall: true, recordedAt: Date.now(), flexpreisSources: isFlexpreis ? filterFlexpreisSources(flexpreisSources, config) : undefined }
     } catch (error) {
       // Spezielle Behandlung für cancelled sessions
       if (error instanceof Error && error.message.includes('was cancelled')) {
@@ -757,7 +740,6 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           error: error.message,
         })
       } else {
-        metricsCollector.recordBahnApiRequest(Date.now() - apiCallStartTime, 500)
         logError(LOG_SCOPE, "Bahn price API request failed", error, routeContext(config, tag))
       }
       const result = {
@@ -768,6 +750,16 @@ export async function getBestPrice(config: any): Promise<{ result: TrainResults 
           ankunftsZeitpunkt: "",
         },
       }
-      return { result, wasApiCall: true, recordedAt: Date.now() }
+      return { result, wasApiCall: true, recordedAt: Date.now(), error: true }
     }
+}
+
+export function filterFlexpreisSources(sources: FlexpreisSource[], config: any): FlexpreisSource[] {
+  const max = config.maximaleUmstiege
+  const date = config.anfrageDatum instanceof Date ? formatDateKey(config.anfrageDatum) : undefined
+  return sources.filter(source => (
+    (!date || source.route.representativeDeparture.slice(0, 10) === date) &&
+    (max === undefined || max === null || max === "" || max === "alle" || source.route.transfers <= Number(max)) &&
+    passesTimeFilter(source.route.representativeDeparture, source.route.representativeArrival, config)
+  ))
 }

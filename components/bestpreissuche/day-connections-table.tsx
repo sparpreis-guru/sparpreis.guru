@@ -47,6 +47,7 @@ export function ConnectionsTable({
 }: any) {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
   const activeSortLabel = SORT_OPTIONS.find(([key]) => key === sortKey)?.[1] || "Preis"
+  const isFlexpreisComparison = searchParams?.tarif === "FLEXPREIS"
 
   const toggleExclusive = (openKey: string, closeKey: string) => {
     setExpandedItems((current) => {
@@ -61,15 +62,16 @@ export function ConnectionsTable({
   }
 
   return (
-    <section className={embedded ? "overflow-hidden bg-white" : "overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"}>
-      <header className="border-b border-blue-200 bg-blue-50 px-4 py-3">
+    <section className={embedded && !isFlexpreisComparison ? "overflow-hidden bg-white" : "overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm"} aria-label={isFlexpreisComparison ? "Bestpreise der Verbindungssuche" : "Verbindungen"}>
+      <header className={`border-b px-4 py-3 ${isFlexpreisComparison ? "border-gray-200 bg-slate-50" : "border-blue-200 bg-blue-50"}`}>
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h3 className="flex items-center gap-2 text-sm font-semibold text-blue-900">
-              <Train className="h-4 w-4" />
-              Verbindungen ({showOnlyCheapest ? `${displayedIntervals.length} von ${intervals.length}` : intervals.length})
+            <h3 className={`flex items-center gap-2 font-semibold ${isFlexpreisComparison ? "text-base text-gray-900" : "text-sm text-blue-900"}`}>
+              <Train className="h-4 w-4 shrink-0" aria-hidden="true" />
+              {isFlexpreisComparison ? "Bestpreise" : "Verbindungen"} ({showOnlyCheapest ? `${displayedIntervals.length} von ${intervals.length}` : intervals.length})
             </h3>
-            <p className="mt-0.5 text-xs text-blue-700">
+            {isFlexpreisComparison && <p className="mt-0.5 text-xs text-gray-600">Günstigste gefundene Tickets · Tarif und Zugbindung bei der Bahn prüfen</p>}
+            <p className={`mt-0.5 text-xs ${isFlexpreisComparison ? "text-gray-600" : "text-blue-700"}`}>
               Nach {activeSortLabel} {sortDir === "asc" ? "aufsteigend" : "absteigend"} sortiert
             </p>
           </div>

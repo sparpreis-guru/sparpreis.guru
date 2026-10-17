@@ -13,12 +13,12 @@ export interface SearchQueueStatusData {
 interface UseSearchQueueStatusOptions {
   sessionId?: string | null
   isActive: boolean
-  remainingRequests: number
+  remainingRateLimitedRequests: number
   searchType: "bestpreissuche" | "urlaubsfinder"
 }
 
-function estimateInitialSeconds(remainingRequests: number): number {
-  const normalizedRequests = Math.max(1, Math.ceil(remainingRequests))
+function estimateInitialSeconds(remainingRateLimitedRequests: number): number {
+  const normalizedRequests = Math.max(1, Math.ceil(remainingRateLimitedRequests))
   const burstStartsAfterInitialSlots = Math.min(7, Math.max(0, normalizedRequests - 3))
   const pacedBurstStarts = Math.min(20, Math.max(0, normalizedRequests - 10))
   const sustainedStarts = Math.max(0, normalizedRequests - 30)
@@ -36,10 +36,10 @@ function estimateInitialSeconds(remainingRequests: number): number {
 export function useSearchQueueStatus({
   sessionId,
   isActive,
-  remainingRequests,
+  remainingRateLimitedRequests,
   searchType,
 }: UseSearchQueueStatusOptions): SearchQueueStatusData {
-  const normalizedRemainingRequests = Math.max(0, remainingRequests)
+  const normalizedRemainingRequests = Math.max(0, remainingRateLimitedRequests)
   const remainingRequestsRef = useRef(normalizedRemainingRequests)
   const hasServerEstimateRef = useRef(false)
   remainingRequestsRef.current = normalizedRemainingRequests

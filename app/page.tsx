@@ -34,6 +34,7 @@ interface SearchParams {
   returnAnkunftAb?: string
   returnAnkunftBis?: string
   klasse?: string
+  tarif?: string
   schnelleVerbindungen?: string
   nurDeutschlandTicketVerbindungen?: string
   maximaleUmstiege?: string

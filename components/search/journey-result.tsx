@@ -3,6 +3,7 @@ import { ArrowRight, ChevronDown, ChevronUp, Clock, Moon, Shuffle, Train, TrainF
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { cn } from "@/lib/utils"
+import { formatPrice } from "@/lib/shared/format-price"
 import { calculateDuration, getDurationMinutes } from "@/lib/train-search/day-details-utils"
 import {
   JourneyTimelineHorizontal,
@@ -68,18 +69,24 @@ export function JourneyBookingButton({
   onClick,
   compactOnMobile = false,
   className,
+  ariaLabel,
+  label: customLabel,
+  mobileLabel = "Buchen",
 }: {
   direction: "one-way" | "outward" | "return"
   href?: string
   onClick?: () => void
   compactOnMobile?: boolean
   className?: string
+  ariaLabel?: string
+  label?: string
+  mobileLabel?: string
 }) {
-  const label = direction === "one-way"
+  const label = customLabel || (direction === "one-way"
     ? "Fahrt buchen"
     : direction === "outward"
       ? "Hinfahrt buchen"
-      : "Rückfahrt buchen"
+      : "Rückfahrt buchen")
   const buttonClasses = cn(
     "h-8 px-2 text-xs",
     direction !== "return"
@@ -92,7 +99,7 @@ export function JourneyBookingButton({
       <Train className="h-3.5 w-3.5" />
       {compactOnMobile ? (
         <>
-          <span className="sm:hidden">Buchen</span>
+          <span className="sm:hidden">{mobileLabel}</span>
           <span className="hidden sm:inline">{label}</span>
         </>
       ) : label}
@@ -102,7 +109,7 @@ export function JourneyBookingButton({
   if (href) {
     return (
       <Button asChild size="sm" variant={direction === "return" ? "outline" : "default"} className={buttonClasses}>
-        <a href={href} target="_blank" rel="noopener noreferrer" aria-label={label} title={label}>{content}</a>
+        <a href={href} target="_blank" rel="noopener noreferrer" aria-label={ariaLabel || label} title={label}>{content}</a>
       </Button>
     )
   }
@@ -115,6 +122,7 @@ export function JourneyBookingButton({
       className={buttonClasses}
       onClick={onClick}
       title={label}
+      aria-label={ariaLabel || label}
     >
       {content}
     </Button>
@@ -207,6 +215,7 @@ export function JourneyDisclosureButton({
   expanded,
   onClick,
   disabled = false,
+  controlsId,
   layout = "default",
 }: {
   icon: ReactNode
@@ -216,6 +225,7 @@ export function JourneyDisclosureButton({
   expanded: boolean
   onClick: () => void
   disabled?: boolean
+  controlsId?: string
   layout?: "default" | "table"
 }) {
   const tableLayout = layout === "table"
@@ -232,6 +242,7 @@ export function JourneyDisclosureButton({
       onClick={onClick}
       disabled={disabled}
       aria-expanded={expanded}
+      aria-controls={controlsId}
     >
       {icon}
       <span className={tableLayout ? "md:hidden" : "sm:hidden"}>{mobileLabel}</span>
@@ -259,14 +270,6 @@ function formatTime(value?: string) {
     hour: "2-digit",
     minute: "2-digit",
   })
-}
-
-function formatPrice(value?: number) {
-  if (typeof value !== "number") return "–"
-  return `${value.toLocaleString("de-DE", {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} €`
 }
 
 function getRoundTripTravelMinutes(journey: RoundTripJourneyData) {
@@ -739,7 +742,7 @@ export function OneWayJourneySummaryPlaceholder({
   priceInMobileHeader?: boolean
 }) {
   return (
-    <div className="animate-pulse">
+    <div className="animate-pulse motion-reduce:animate-none">
       {(showBadges || priceInMobileHeader) && (
         <div className={cn(
           "min-h-9 items-center gap-3 border-b border-gray-200 bg-white/80 px-3 py-1.5 sm:flex sm:px-4",

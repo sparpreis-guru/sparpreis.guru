@@ -1,0 +1,612 @@
+{
+  "source": "Public bahn.de recon, 2026-10-13, anonymous adult context",
+  "snapshots": [
+    {
+      "context": {
+        "klasse": "KLASSE_2",
+        "alter": "ERWACHSENER",
+        "ermaessigungArt": "KEINE_ERMAESSIGUNG",
+        "ermaessigungKlasse": "KLASSENLOS"
+      },
+      "expectedCents": 17220,
+      "offers": [
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_2",
+          "preis": {
+            "betrag": 172.2,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 11.27,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 172.2,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 160.93,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_2",
+                "preis": {
+                  "betrag": 172.2,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 11.27,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 172.2,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 160.93,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "STANDARD"
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_1",
+          "preis": {
+            "betrag": 318.6,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 20.84,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 318.6,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 297.76,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_1",
+                "preis": {
+                  "betrag": 318.6,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 20.84,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 318.6,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 297.76,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "UPSELL_VERKNUEPFT",
+                  "standardAngebotInstanzId": "aeee8272-32fc-47aa-a1a0-18a6f26be51e"
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  },
+                  {
+                    "textKurz": "Zutritt zur DB Lounge"
+                  },
+                  {
+                    "textKurz": "Sitzplatz inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_2",
+          "preis": {
+            "betrag": 86.1,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 5.63,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 86.1,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 80.47,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_2",
+                "preis": {
+                  "betrag": 86.1,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 5.63,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 86.1,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 80.47,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "STANDARD"
+                },
+                "streichpreis": {
+                  "betrag": 172.2,
+                  "waehrung": "EUR",
+                  "mwst": []
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "86,10 € Ersparnis durch BahnCard Rabatt"
+                  },
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "context": {
+        "klasse": "KLASSE_2",
+        "alter": "ERWACHSENER",
+        "ermaessigungArt": "BAHNCARD25",
+        "ermaessigungKlasse": "KLASSE_2"
+      },
+      "expectedCents": 12915,
+      "offers": [
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_2",
+          "preis": {
+            "betrag": 129.15,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 8.45,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 129.15,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 120.7,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_2",
+                "preis": {
+                  "betrag": 129.15,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 8.45,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 129.15,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 120.7,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "STANDARD"
+                },
+                "streichpreis": {
+                  "betrag": 172.2,
+                  "waehrung": "EUR",
+                  "mwst": []
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "43,05 € Ersparnis durch BahnCard Rabatt"
+                  },
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_1",
+          "preis": {
+            "betrag": 318.6,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 20.84,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 318.6,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 297.76,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_1",
+                "preis": {
+                  "betrag": 318.6,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 20.84,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 318.6,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 297.76,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "UPSELL_VERKNUEPFT",
+                  "standardAngebotInstanzId": "b74d2dca-d37b-4d61-bbdf-fe0a02ee8e37"
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  },
+                  {
+                    "textKurz": "Zutritt zur DB Lounge"
+                  },
+                  {
+                    "textKurz": "Sitzplatz inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "context": {
+        "klasse": "KLASSE_2",
+        "alter": "ERWACHSENER",
+        "ermaessigungArt": "BAHNCARD50",
+        "ermaessigungKlasse": "KLASSE_2"
+      },
+      "expectedCents": 8610,
+      "offers": [
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_2",
+          "preis": {
+            "betrag": 86.1,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 5.63,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 86.1,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 80.47,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_2",
+                "preis": {
+                  "betrag": 86.1,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 5.63,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 86.1,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 80.47,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "STANDARD"
+                },
+                "streichpreis": {
+                  "betrag": 172.2,
+                  "waehrung": "EUR",
+                  "mwst": []
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "86,10 € Ersparnis durch BahnCard Rabatt"
+                  },
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "context": {
+        "klasse": "KLASSE_1",
+        "alter": "ERWACHSENER",
+        "ermaessigungArt": "BAHNCARD50",
+        "ermaessigungKlasse": "KLASSE_1"
+      },
+      "expectedCents": 15930,
+      "offers": [
+        {
+          "name": "Flexpreis",
+          "klasse": "KLASSE_1",
+          "preis": {
+            "betrag": 159.3,
+            "waehrung": "EUR",
+            "mwst": [
+              {
+                "betrag": {
+                  "betrag": 10.42,
+                  "waehrung": "EUR"
+                },
+                "brutto": {
+                  "betrag": 159.3,
+                  "waehrung": "EUR"
+                },
+                "netto": {
+                  "betrag": 148.88,
+                  "waehrung": "EUR"
+                },
+                "literal": "D",
+                "satz": 7
+              }
+            ]
+          },
+          "teilpreis": false,
+          "hinfahrt": {
+            "fahrtAngebote": [
+              {
+                "name": "Flexpreis",
+                "klasse": "KLASSE_1",
+                "preis": {
+                  "betrag": 159.3,
+                  "waehrung": "EUR",
+                  "mwst": [
+                    {
+                      "betrag": {
+                        "betrag": 10.42,
+                        "waehrung": "EUR"
+                      },
+                      "brutto": {
+                        "betrag": 159.3,
+                        "waehrung": "EUR"
+                      },
+                      "netto": {
+                        "betrag": 148.88,
+                        "waehrung": "EUR"
+                      },
+                      "literal": "D",
+                      "satz": 7
+                    }
+                  ]
+                },
+                "buchbarkeit": "BUCHBAR",
+                "angebotAbgelaufen": false,
+                "kontext": {
+                  "typ": "STANDARD"
+                },
+                "streichpreis": {
+                  "betrag": 318.6,
+                  "waehrung": "EUR",
+                  "mwst": []
+                },
+                "konditionsAnzeigen": [
+                  {
+                    "textKurz": "159,30 € Ersparnis durch BahnCard Rabatt"
+                  },
+                  {
+                    "textKurz": "Freie Zugwahl"
+                  },
+                  {
+                    "textKurz": "Stornierung vor 1. Geltungstag kostenfrei"
+                  },
+                  {
+                    "textKurz": "City-Ticket in Berlin und München inklusive"
+                  },
+                  {
+                    "textKurz": "Zutritt zur DB Lounge"
+                  },
+                  {
+                    "textKurz": "Sitzplatz inklusive"
+                  }
+                ]
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

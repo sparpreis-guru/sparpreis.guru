@@ -10,6 +10,7 @@ import { initializeEmptyDatabase } from '@/lib/database/database-migrations.cjs'
 import databaseSchema from '@/lib/database/database-schema.json'
 import databasePolicy from '@/lib/database/database-policy.json'
 import { getBerlinDateKey } from '@/lib/shared/berlin-date'
+import type { FlexpreisSource } from '@/lib/search/flexpreis-comparison'
 
 const LOG_SCOPE = "bestpreissuche.cache"
 
@@ -31,6 +32,7 @@ interface TrainResult {
   abfahrtsZeitpunkt: string
   ankunftsZeitpunkt: string
   recordedAt?: number
+  flexpreisSources?: FlexpreisSource[]
   allIntervals?: Array<{
     preis: number
     abschnitte?: Array<{
@@ -323,6 +325,28 @@ export function getCachedResult(cacheKey: string): { data: TrainResults | null; 
   }
 }
 
+// Versioned, disjoint JSON-key namespaces keep auxiliary offer payloads out of
+// the connection/history reader. The SQLite envelope and retention stay compatible.
+export function getFlexpreisCache<T>(key: string, ttl = CACHE_FRESHNESS_TTL): T | null {
+  try {
+    const row = stmtGetCache.get(key) as { data_compressed: Buffer; last_fetched_at: number } | undefined
+    if (!row || Date.now() - row.last_fetched_at > ttl) return null
+    return JSON.parse(gunzipSync(row.data_compressed).toString('utf8')) as T
+  } catch (error) {
+    logError(LOG_SCOPE, "Could not read Flexpreis cache", error)
+    return null
+  }
+}
+
+export function setFlexpreisCache(key: string, value: unknown): void {
+  try {
+    const now = Date.now()
+    stmtSetCache.run(key, gzipSync(Buffer.from(JSON.stringify(value))), now, now)
+  } catch (error) {
+    logError(LOG_SCOPE, "Could not write Flexpreis cache", error)
+  }
+}
+
 export function setCachedResult(
   cacheKey: string,
   data: TrainResults | null,
@@ -373,7 +397,7 @@ export function setCachedResult(
           now
         )
       }
-      
+
       // Alle Intervalle speichern
       if (result.allIntervals) {
         for (const interval of result.allIntervals) {

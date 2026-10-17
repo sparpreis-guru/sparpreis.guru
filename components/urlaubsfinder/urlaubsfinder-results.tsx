@@ -427,7 +427,7 @@ export function UrlauberfinderResults({
   const queueStatus = useSearchQueueStatus({
     sessionId,
     isActive: isLoading,
-    remainingRequests,
+    remainingRateLimitedRequests: remainingRequests,
     searchType: "urlaubsfinder",
   })
 
