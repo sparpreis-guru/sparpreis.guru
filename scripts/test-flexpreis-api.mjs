@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { registerHooks } from 'node:module'
-import { readFileSync, existsSync } from 'node:fs'
+import { readFileSync, existsSync, statSync } from 'node:fs'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { resolve, dirname } from 'node:path'
 import ts from 'typescript'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 
 // Exercise the actual routes, SQLite payloads and queues without external calls,
 // a dev server, or touching the user's database. No additional test dependency.
@@ -98,7 +100,7 @@ registerHooks({
     if(specifier==='next/server') specifier='next/server.js'
     if(specifier.startsWith('@/') || (specifier.startsWith('.')&&context.parentURL?.startsWith(pathToFileURL(root).href))) {
       const base=specifier.startsWith('@/')?resolve(root,specifier.slice(2)):resolve(dirname(fileURLToPath(context.parentURL)),specifier)
-      const path=[base,base+'.ts',base+'.tsx',base+'.js',resolve(base,'index.ts')].find(p=>existsSync(p)&&!p.endsWith('/'))
+      const path=[base,base+'.ts',base+'.tsx',base+'.js',resolve(base,'index.ts')].find(p=>existsSync(p)&&statSync(p).isFile())
       if(path) return {url:pathToFileURL(path).href+(path.endsWith('.json') && /\.tsx?$/.test(context.parentURL || '') ? '?esm' : ''),shortCircuit:true}
     }
     return next(specifier,context)
@@ -122,6 +124,7 @@ const {fetchFlexpreisQuote,resolveFlexpreisDay,cachedFlexpreisQuote,supplementFl
 const {metricsCollector}=await import('../app/api/metrics/collector.ts')
 const {getCalendarDayLoadingPhase}=await import('../components/bestpreissuche/price-calendar.tsx')
 const {scheduleSearchProgressScroll}=await import('../components/search/search-progress-panel.tsx')
+const {TravelCombinations}=await import('../components/bestpreissuche/travel-combinations.tsx')
 const {filterFlexpreisSources}=await import('../app/api/search-prices/bahn-api.ts')
 const {buildFlexpreisSource,comparisonSource,chooseFlexpreisComparison}=await import('../lib/search/flexpreis-comparison.ts')
 const {globalRateLimiter,cancelBestpreisSearchSession}=await import('../app/api/search-prices/rate-limiter.ts')
@@ -461,6 +464,32 @@ test('negative Recon checks identify outdated prices even before a subsequent fa
     assert.equal(result.status,'no_offer');assert.equal(result.alternativesStatus,'partial')
     assert.deepEqual(result.checkedConnectionKeys,[sources[0].connectionKey])
   } finally { emptyRecon.delete(primary.ctxRecon);failedRecon.delete(alternate.ctxRecon) }
+})
+
+test('round-trip progress and timeline retain the final day across the winter-time change',()=>{
+  const previousTimeZone=process.env.TZ
+  try {
+    for(const timeZone of ['Europe/Berlin','UTC']) {
+      process.env.TZ=timeZone
+      const makeResults=(dates)=>Object.fromEntries(dates.map(date=>[date,{
+        preis:date==='2026-10-28'?10:20,info:'',
+        abfahrtsZeitpunkt:date+'T08:00:00+01:00',ankunftsZeitpunkt:date+'T12:00:00+01:00',
+      }]))
+      const markup=renderToStaticMarkup(createElement(TravelCombinations,{
+        combinations:[],expectedOutwardDays:4,expectedReturnDays:4,
+        outwardResults:makeResults(['2026-10-22','2026-10-23','2026-10-24','2026-10-25']),
+        returnResults:makeResults(['2026-10-25','2026-10-26','2026-10-27','2026-10-28']),
+        searchParams:{rueckfahrt:'1',reisezeitraumAb:'2026-10-22',reisezeitraumBis:'2026-10-28',
+          minNaechte:'3',returnWochentage:'1,2,3,4,5,6,0'},
+      }))
+      assert.match(markup,/aria-label="8 von 8 Reisetagen geprüft"/,timeZone)
+      assert.match(markup,/>100%<\//,timeZone)
+      assert.match(markup,/aria-label="Rückfahrtsdatum verschieben" aria-valuetext="[^"]*28\.10\./,timeZone)
+    }
+  } finally {
+    if(previousTimeZone===undefined) delete process.env.TZ
+    else process.env.TZ=previousTimeZone
+  }
 })
 
 function scrollHarness() {

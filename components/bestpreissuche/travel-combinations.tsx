@@ -49,7 +49,7 @@ import {
   RoundTripJourneySummaryPlaceholder,
 } from "@/components/search/journey-result"
 import { JourneySortControls } from "@/components/search/journey-sort-controls"
-import { getFeasibleReturnSearchDates } from "@/lib/search/return-search-feasibility"
+import { getEligibleDateKeys, getFeasibleReturnSearchDates, parseSearchWeekdays } from "@/lib/search/return-search-feasibility"
 import { useSearchQueueStatus } from "@/hooks/use-search-queue-status"
 import {
   createPriceBandScale,
@@ -268,28 +268,7 @@ function getCombinationKey(outwardDate: string, returnDate: string) {
 function generateDateKeys(from?: string, to?: string, weekdaysParam?: string, limit = 30) {
   if (!from || !to) return []
 
-  let weekdays = [1, 2, 3, 4, 5, 6, 0]
-  if (weekdaysParam) {
-    try {
-      const decoded = decodeURIComponent(weekdaysParam)
-      weekdays = decoded.startsWith("[")
-        ? JSON.parse(decoded)
-        : decoded.split(",").map(Number).filter((n) => !Number.isNaN(n) && n >= 0 && n <= 6)
-    } catch {}
-  }
-
-  const dates: string[] = []
-  const start = new Date(from)
-  const end = new Date(to)
-  for (let d = new Date(start); d <= end && dates.length < limit; d.setDate(d.getDate() + 1)) {
-    if (weekdays.includes(d.getDay())) {
-      const year = d.getFullYear()
-      const month = String(d.getMonth() + 1).padStart(2, "0")
-      const day = String(d.getDate()).padStart(2, "0")
-      dates.push(`${year}-${month}-${day}`)
-    }
-  }
-  return dates
+  return getEligibleDateKeys(from, to, parseSearchWeekdays(weekdaysParam)).slice(0, limit)
 }
 
 
