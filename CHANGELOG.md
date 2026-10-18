@@ -1,5 +1,13 @@
 # Changelog
 
+## [2.4.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.0...v2.4.1) (2026-10-18)
+
+
+### Bug Fixes
+
+* date handling across CEST/CET changes ([69c3797](https://github.com/sparpreis-guru/sparpreis.guru/commit/69c3797a584fc933eaa50f0e2bcf10cc810e7a4f))
+* date handling across CEST/CET changes ([0d3b0fe](https://github.com/sparpreis-guru/sparpreis.guru/commit/0d3b0fe69fcf3288c3671718e229a17b6de26c9c))
+
 ## [2.4.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.3.2...v2.4.0) (2026-10-17)
 
 
