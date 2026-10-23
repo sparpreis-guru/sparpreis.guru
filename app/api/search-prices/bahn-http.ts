@@ -37,6 +37,11 @@ export function isTemporaryBahnNetworkError(error: unknown): boolean {
   return typeof code === "string" && TEMPORARY_NETWORK_ERROR_CODES.has(code)
 }
 
+const [opensslMajor, opensslMinor] = process.versions.openssl.split(".").map(Number)
+const bahnKeyExchangeGroups = opensslMajor > 3 || (opensslMajor === 3 && opensslMinor >= 5)
+  ? "X25519MLKEM768:X25519:P-256:P-384"
+  : "X25519:P-256:P-384"
+
 const bahnAgent = new Agent({
   // Undici 8 enables HTTP/2 by default. Preserve the previous HTTP/1.1-only
   // behavior used by the scoped bahn.de TLS workaround.
@@ -45,7 +50,11 @@ const bahnAgent = new Agent({
     // Some local Windows/Node setups select an unreachable Akamai IPv6 route
     // for bahn.de and never fall back to the working IPv4 addresses.
     family: 4,
-    maxVersion: "TLSv1.2",
+    // Akamai rejects the default Node supported_groups list and the former
+    // TLS 1.2 workaround with OPS_BLOCKED. Use explicit groups while allowing
+    // TLS 1.3; keep hybrid key exchange on OpenSSL 3.5+ (Node 24+).
+    // Reproduction and limitations: docs/bahn-api-transport.md.
+    ecdhCurve: bahnKeyExchangeGroups,
   },
   keepAliveTimeout: 10_000,
   keepAliveMaxTimeout: 60_000,
@@ -69,9 +78,7 @@ export async function fetchBahn(url: string, options: BahnHttpOptions = {}): Pro
       headers: options.headers,
       body: options.body,
       signal: controller.signal,
-      // bahn.de currently blocks Node 24/OpenSSL 3.5's TLS 1.3 ClientHello with
-      // OPS_BLOCKED, while the same request succeeds with TLS 1.2. Keep this
-      // scoped to bahn.de instead of lowering TLS globally for the process.
+      // Keep the TLS compatibility settings scoped to this Bahn client.
       dispatcher: bahnAgent,
     })
 

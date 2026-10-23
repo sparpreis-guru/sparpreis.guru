@@ -111,6 +111,7 @@ interface TravelCombinationsProps {
   onCancelSearch?: () => void
   onRestartSearch?: () => void
   searchWasCancelled?: boolean
+  hasSearchError?: boolean
   lazyCombinationRequest?: LazyCombinationRequestState | null
   onRequestCombination?: (outwardDate: string, returnDate: string) => void | Promise<void>
   onResolveLazyCombination?: () => void
@@ -2851,6 +2852,7 @@ export function TravelCombinations({
   onCancelSearch,
   onRestartSearch,
   searchWasCancelled,
+  hasSearchError,
   lazyCombinationRequest,
   onRequestCombination,
   onResolveLazyCombination,
@@ -3068,7 +3070,7 @@ export function TravelCombinations({
         />
       )}
 
-      {!isStreaming && rankedCombinations.length === 0 && (
+      {!isStreaming && !hasSearchError && rankedCombinations.length === 0 && (
         <div className="rounded-lg border border-orange-200 bg-orange-50 p-4 text-sm text-orange-800">
           Keine passende Hin- und Rückfahrt-Kombination für die gewählte Aufenthaltsdauer gefunden.
         </div>

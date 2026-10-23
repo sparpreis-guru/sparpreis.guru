@@ -1,6 +1,7 @@
 "use client"
 
-import { ArrowRight, CalendarDays, ChevronLeft, ChevronRight, CircleX, Loader2 } from "lucide-react"
+import { AlertTriangle, ArrowRight, CalendarDays, ChevronLeft, ChevronRight, CircleX, Loader2 } from "lucide-react"
+import { getDaySearchFailure } from "@/lib/search/search-errors"
 import { Button } from "@/components/ui/button"
 import { useState, useEffect } from "react"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
@@ -544,6 +545,7 @@ export function PriceCalendar({
               const hasSparPrice = Boolean(rawPriceData && rawPriceData.preis > 0)
               const hasFlexPrice = Boolean(flexpreisCellAmount(rawPriceData?.flexpreis, flexComparison?.basis?.id))
               const hasPrice = cellPrice > 0
+              const dayFailure = hasPrice ? null : getDaySearchFailure(rawPriceData)
               const flexPriceUnavailable = isFlexpreis && priceView === "flexpreis" && Boolean(rawPriceData?.flexpreis) && !hasFlexPrice
               const hasResult = !!priceData
               const hasMultipleOptions = priceData?.allIntervals && priceData.allIntervals.length > 1
@@ -575,6 +577,8 @@ export function PriceCalendar({
               })
               const cellAriaLabel = isPendingDay
                 ? `${formattedCellDate}: ${loadingPhase === "flexpreis" ? "Flexpreis wird abgefragt" : "Preis wird abgefragt"}`
+                : dayFailure
+                ? `${formattedCellDate}: ${dayFailure.message}`
                 : flexPriceUnavailable
                 ? `${formattedCellDate}: ${flexStatusText}`
                 : hasPrice && priceView === "flexpreis"
@@ -591,7 +595,7 @@ export function PriceCalendar({
                   key={dateKey}
                   disabled={!isInteractiveDay}
                   aria-label={cellAriaLabel}
-                  title={hasPrice ? formatPrice(cellPrice) : undefined}
+                  title={hasPrice ? formatPrice(cellPrice) : dayFailure?.message}
                   aria-busy={isPendingDay}
                   className={`
                     relative flex h-[90px] min-w-0 w-full flex-col justify-between rounded-lg border px-0.5 py-1 text-left sm:h-[100px] sm:p-3
@@ -685,7 +689,13 @@ export function PriceCalendar({
                   </div>
 
                   {/* Indikator für Tage ohne Fahrten: nur für geprüfte Tage */}
-                  {hasResult && !isPendingDay && !flexPriceUnavailable && cellPrice === 0 && (
+                  {hasResult && !isPendingDay && dayFailure && (
+                    <div className="absolute bottom-1 right-1 text-red-700">
+                      <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span className="sr-only">Preisabfrage fehlgeschlagen</span>
+                    </div>
+                  )}
+                  {hasResult && !isPendingDay && !dayFailure && !flexPriceUnavailable && cellPrice === 0 && (
                     <div className="absolute bottom-1 right-1 text-gray-400">
                       <CircleX className="h-3.5 w-3.5" aria-hidden="true" />
                       <span className="sr-only">Keine Verbindung verfügbar</span>

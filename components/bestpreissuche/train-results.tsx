@@ -9,6 +9,8 @@ import {
   type TravelCombination,
 } from "./travel-combinations"
 import { IncompleteSearchNotice } from "@/components/search/incomplete-search-notice"
+import { SearchErrorNotice } from "@/components/search/search-error-notice"
+import { describeSearchFailure, getSearchFailures, type SearchFailure } from "@/lib/search/search-errors"
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 import { getEligibleDateKeys, getFeasibleReturnSearchDates } from "@/lib/search/return-search-feasibility"
@@ -156,6 +158,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const flexLookupRef = useRef<{ controller: AbortController; sessionId: string } | null>(null)
   const [priceResults, setPriceResults] = useState<PriceResults>({})
   const [loading, setLoading] = useState(false)
+  const [searchError, setSearchError] = useState<SearchFailure | null>(null)
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [selectedData, setSelectedData] = useState<PriceData | null>(null)
@@ -549,6 +552,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       setLazyDayRequest(null)
       setIsFullMatrixLoading(false)
       setFullMatrixLoadError(null)
+      setSearchError(null)
       setLoading(true)
       setAutoScrollOnSearchStart(!isBasisChange)
       if (isBasisChange && selectedFlexBasisId) {
@@ -600,7 +604,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
-          throw new Error(errorData.error || `HTTP ${response.status}: Bestpreissuche fehlgeschlagen`)
+          throw new Error(`HTTP ${response.status}: ${errorData.error || "Bestpreissuche fehlgeschlagen"}`)
         }
 
         const reader = response.body?.getReader()
@@ -622,8 +626,16 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               for (const line of lines) {
                 if (searchRunIdRef.current !== searchRunId) return
                 if (line.trim()) {
+                  let data
                   try {
-                    const data = JSON.parse(line)
+                    data = JSON.parse(line)
+                  } catch {
+                    logWarn(LOG_SCOPE, "Could not parse Bestpreissuche streaming response line", {
+                      sessionId: newSessionId,
+                      line,
+                    })
+                    throw new Error("JSON Parse Error")
+                  }
                     
                     if (data.type === 'meta') {
                       setPriceResults(prev => ({
@@ -650,6 +662,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                         setTravelCombinations(data.travelCombinations)
                       }
                       processedDaysRef.current.add(`return:${data.date}`)
+                    } else if (data.type === 'error') {
+                      throw new Error(data.error || "Bestpreissuche fehlgeschlagen")
                     } else if (data.type === 'complete') {
                       // Vollständige Ergebnisse bei Abschluss
                       setPriceResults((current) => ({
@@ -667,12 +681,6 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                       setSessionId(null)
                       return
                     }
-                  } catch {
-                    logWarn(LOG_SCOPE, "Could not parse Bestpreissuche streaming response line", {
-                      sessionId: newSessionId,
-                      line,
-                    })
-                  }
                 }
               }
             }
@@ -688,6 +696,10 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
             if (searchRunIdRef.current !== searchRunId) return
             try {
               const finalData = JSON.parse(buffer)
+              if (finalData.type === "error") {
+                setSearchError(describeSearchFailure(finalData.error || "Bestpreissuche fehlgeschlagen"))
+                return
+              }
               const finalResults = finalData.results || finalData
               setPriceResults((current) => ({
                 ...current,
@@ -697,6 +709,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               setReturnPriceResults((current) => ({ ...current, ...(finalData.returnResults || {}) }))
               setTravelCombinations(finalData.travelCombinations || [])
             } catch (e) {
+              setSearchError(describeSearchFailure("JSON Parse Error"))
               logWarn(LOG_SCOPE, "Could not parse Bestpreissuche final streaming buffer", {
                 sessionId: newSessionId,
                 buffer,
@@ -708,6 +721,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
           // Fallback für non-streaming response
           const data = await response.json()
           if (searchRunIdRef.current !== searchRunId) return
+          if (data.type === "error") throw new Error(data.error || "Bestpreissuche fehlgeschlagen")
           const responseResults = data.results || data
           setPriceResults((current) => ({
             ...current,
@@ -732,6 +746,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         if (err instanceof Error && err.name === 'AbortError') {
           logInfo(LOG_SCOPE, "Bestpreissuche request aborted by user", { sessionId: newSessionId })
         } else {
+          setSearchError(describeSearchFailure(err instanceof Error ? err.message : "Bestpreissuche fehlgeschlagen"))
           logError(LOG_SCOPE, "Bestpreissuche client request failed", err, { sessionId: newSessionId })
         }
       } finally {
@@ -1070,10 +1085,22 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const minPrice = Math.min(...prices)
   const maxPrice = Math.max(...prices)
   const avgPrice = Math.round(prices.reduce((a: number, b: number) => a + b, 0) / prices.length)
+  const searchFailures = getSearchFailures([
+    ...validPriceResults.map(([, data]) => data),
+    ...Object.values(returnPriceResults),
+  ])
+  if (searchError) searchFailures.unshift(searchError)
+  const showSearchError = !loading && !isStreaming && !showAbortModal && !searchWasCancelled && searchFailures.length > 0
+  const hasAvailablePrices = prices.length > 0 || Object.values(returnPriceResults).some(data => data.preis > 0) ||
+    validPriceResults.some(([, data]) => data.flexpreis?.status === "priced")
 
   // Show nothing if no search params
   if (!searchParams.start || !searchParams.ziel) {
     return null
+  }
+
+  if (showSearchError && !hasAvailablePrices) {
+    return <SearchErrorNotice failures={searchFailures} />
   }
 
   // Always show calendar when search is active or has results
@@ -1101,6 +1128,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   return (
       <div className="space-y-6">
+        {showSearchError && <SearchErrorNotice failures={searchFailures} hasResults={hasAvailablePrices} />}
         {searchWasCancelled && !hasReturnSearch && validPriceResults.length === 0 && <IncompleteSearchNotice />}
 
         {hasReturnSearch ? (
@@ -1119,6 +1147,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
               onCancelSearch={cancelSearch}
               onRestartSearch={restartSearch}
               searchWasCancelled={searchWasCancelled}
+              hasSearchError={showSearchError}
               lazyCombinationRequest={lazyCombinationRequest}
               onRequestCombination={requestLazyCombination}
               onResolveLazyCombination={clearLazyCombinationRequest}
