@@ -1,5 +1,12 @@
 # Changelog
 
+## [2.4.2](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.1...v2.4.2) (2026-10-23)
+
+
+### Bug Fixes
+
+* Bahn API search failures ([#87](https://github.com/sparpreis-guru/sparpreis.guru/issues/87)) ([6066f7a](https://github.com/sparpreis-guru/sparpreis.guru/commit/6066f7a3136696bc0e1ed9176c55316bbdd7cde1))
+
 ## [2.4.1](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.0...v2.4.1) (2026-10-18)
 
 
