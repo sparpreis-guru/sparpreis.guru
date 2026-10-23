@@ -3,6 +3,7 @@
 import type { FormEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createBookingLink } from "@/lib/train-search/day-details-utils"
+import { getSearchFailures } from "@/lib/search/search-errors"
 
 interface SearchParams {
   start?: string
@@ -280,6 +281,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
   const meta = priceResults._meta
   const selectedData = selectedDate ? (priceResults[selectedDate] as PriceData | undefined) : null
   const positivePrices = entries.map(([, value]) => value.preis).filter((price) => price > 0)
+  const searchFailures = getSearchFailures(entries.map(([, value]) => value))
   const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : 0
   const completedDays = entries.length
   const hasSearch = Boolean(searchParams.start && searchParams.ziel)
@@ -875,7 +877,13 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
               </div>
             )}
 
-            {!loading && !isStreaming && entries.length > 0 && positivePrices.length === 0 && (
+            {!loading && !isStreaming && searchFailures.length > 0 && (
+              <div role="alert" className="subtitle">
+                {positivePrices.length > 0 && <p>Die angezeigten Ergebnisse sind unvollständig.</p>}
+                {searchFailures.map(failure => <p key={failure.message}>{failure.message}</p>)}
+              </div>
+            )}
+            {!loading && !isStreaming && !error && searchFailures.length === 0 && entries.length > 0 && positivePrices.length === 0 && (
               <div id="error" className="subtitle">
                 <span>Keine Preise gefunden.</span>
               </div>

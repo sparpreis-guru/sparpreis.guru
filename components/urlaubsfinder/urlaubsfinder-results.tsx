@@ -11,6 +11,8 @@ import {
 import { createBookingLink } from "@/lib/train-search/day-details-utils"
 import type { JourneyLeg } from "@/components/bestpreissuche/journey-timeline"
 import { SearchProgressPanel } from "@/components/search/search-progress-panel"
+import { SearchErrorNotice } from "@/components/search/search-error-notice"
+import type { SearchFailure } from "@/lib/search/search-errors"
 import {
   DirectJourneyBadge,
   JourneyBookingButton,
@@ -79,6 +81,7 @@ interface DestinationResult {
 interface UnavailableDestination {
   destination: string
   reason: string
+  error?: SearchFailure
   outwardPrice?: number
   returnPrice?: number
 }
@@ -359,6 +362,7 @@ export function UrlauberfinderResults({
     ? Math.min(...results.map((result) => result.totalPrice))
     : null
   const hasUnavailable = unavailableResults.length > 0
+  const searchFailures = unavailableResults.flatMap(result => result.error ? [result.error] : [])
   const hasMapData = results.some((r) => r.lat && r.lon)
   const remainingDestinations = progress
     ? Math.max(0, progress.total - progress.processed)
@@ -472,6 +476,9 @@ export function UrlauberfinderResults({
         detail={hasResults ? `${results.length} Ziel${results.length !== 1 ? "e" : ""} gefunden` : undefined}
       />
 
+      {!isLoading && !searchWasCancelled && searchFailures.length > 0 && (
+        <SearchErrorNotice failures={searchFailures} hasResults={hasResults} />
+      )}
       {!isLoading && !hasResults && !hasUnavailable && (
         <div className="bg-white rounded-2xl border border-gray-200 p-10 text-center">
           <AlertCircle className="w-9 h-9 text-amber-400 mx-auto mb-3" />

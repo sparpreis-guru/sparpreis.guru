@@ -39,6 +39,7 @@ const journeys = new Map()
 const failedRecon = new Set(), emptyRecon = new Set(), changedRecon = new Set()
 const failedTimetables = new Set(), networkFailures = new Map()
 let missingDay, failedDay, reconDelay = 0
+let failedDayResponse = { status: 500, body: {} }
 
 function throwNetworkFailure(endpoint) {
   if (networkFailures.has(endpoint)) throw networkFailures.get(endpoint)
@@ -68,7 +69,7 @@ globalThis.__mockFlexFetch = async (url, options={}) => {
     calls.day++
     throwNetworkFailure('tagesbestpreis')
     const date=body.anfrageZeitpunkt.slice(0,10)
-    if(date===failedDay) return response({},500)
+    if(date===failedDay) return response(failedDayResponse.body,failedDayResponse.status)
     const raw = (date===missingDay?[true]:[false,true]).map(alternate=>journey(date,alternate))
     for(const j of raw) journeys.set(j.ctxRecon,j)
     return response({intervalle:[{preis:{betrag:19.99},verbindungen:raw.map(verbindung=>({verbindung,abPreis:{betrag:19.99},teilpreis:false}))}]})
@@ -111,7 +112,7 @@ registerHooks({
     if(url.startsWith(pathToFileURL(root).href)&&!url.includes('/node_modules/')) {
       if(url.endsWith('.json?esm')) return {format:'module',shortCircuit:true,source:'export default '+readFileSync(fileURLToPath(url),'utf8')}
       if(/\.tsx?$/.test(url)) return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(fileURLToPath(url),'utf8'),
-        {compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText}
+        {fileName:fileURLToPath(url),compilerOptions:{module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText}
     }
     return next(url,context)
   }
@@ -464,6 +465,77 @@ test('negative Recon checks identify outdated prices even before a subsequent fa
     assert.equal(result.status,'no_offer');assert.equal(result.alternativesStatus,'partial')
     assert.deepEqual(result.checkedConnectionKeys,[sources[0].connectionKey])
   } finally { emptyRecon.delete(primary.ctxRecon);failedRecon.delete(alternate.ctxRecon) }
+})
+
+test('blocked price responses survive streaming and render as actionable errors, including partial results',async()=>{
+  const {getSearchFailures,getDaySearchFailure,describeSearchFailure}=await import('../lib/search/search-errors.ts')
+  const {SearchErrorNotice}=await import('../components/search/search-error-notice.tsx')
+  const {PriceCalendar}=await import('../components/bestpreissuche/price-calendar.tsx')
+  const date=addDaysToDateKey(first,95)
+  failedDay=date
+  failedDayResponse={status:403,body:{status:'ERROR',code:'OPS_BLOCKED',errorRefId:'private-ref'}}
+  try {
+    const run=await search(2,{tarif:'SPARPREIS',reisezeitraumAb:date,reisezeitraumBis:addDaysToDateKey(date,1)})
+    const failures=getSearchFailures(Object.entries(run.results).filter(([key])=>key!=='_meta').map(([,value])=>value))
+    assert.equal(failures.length,1)
+    assert.equal(failures[0].kind,'blocked')
+    assert.ok(run.results[addDaysToDateKey(date,1)].preis>0,'successful days must survive')
+    const failureEvent=run.events.find(event=>event.type==='dayResult'&&event.date===date)
+    assert.equal(getDaySearchFailure(failureEvent.result).kind,'blocked')
+    for(const hasResults of [false,true]) {
+      const html=renderToStaticMarkup(createElement(SearchErrorNotice,{failures,hasResults}))
+      assert.match(html,/role="alert"/)
+      assert.match(html,/HTTP 403, OPS_BLOCKED/)
+      assert.doesNotMatch(html,/<button\b/)
+      assert.doesNotMatch(html,/Keine Preise gefunden|private-ref/)
+      assert.equal(html.includes('Ergebnisse sind unvollständig'),hasResults)
+    }
+    // PriceCalendar initially shows the current month; use today's date to check its failure cell.
+    const today=getBerlinDateKey()
+    const currentCalendar=renderToStaticMarkup(createElement(PriceCalendar,{
+      results:{[today]:failureEvent.result},onDayClick:()=>{},searchParams:{...defaults,tarif:'SPARPREIS',reisezeitraumAb:today,reisezeitraumBis:today},tarif:'SPARPREIS',
+    }))
+    assert.match(currentCalendar,/aria-label="[^"]*HTTP 403, OPS_BLOCKED/)
+    assert.match(currentCalendar,/Preisabfrage fehlgeschlagen/)
+    assert.doesNotMatch(currentCalendar,/Keine Verbindung verfügbar/)
+  } finally { failedDay=undefined;failedDayResponse={status:500,body:{}} }
+  for(const info of ['Kein Bestpreis verfügbar!','Keine Verbindungen im gewählten Zeitfenster','Keine Intervalle gefunden!','Search cancelled']) {
+    assert.equal(getDaySearchFailure({preis:0,info}),null,info)
+  }
+  for(const [info,kind] of [['API Error: HTTP 429','rate_limit'],['Rate limited, retrying','rate_limit'],
+    ['API Error: Request timed out','timeout'],['API Error: fetch failed','network'],['JSON Parse Error','response'],['API Error: HTTP 503: <html>internal</html>','request']]) {
+    const error=getDaySearchFailure({preis:0,info})
+    assert.equal(error.kind,kind)
+    assert.doesNotMatch(error.message,/<html>|internal/)
+  }
+  assert.equal(getSearchFailures([{preis:0,info:'API Error: HTTP 403'},{preis:0,info:'API Error: HTTP 403'}]).length,1)
+  assert.equal(describeSearchFailure('Failed to fetch').kind,'network')
+})
+
+test('round-trip API failures suppress the no-combinations claim while normal empty searches keep it',()=>{
+  const props={combinations:[],outwardResults:{},returnResults:{},expectedOutwardDays:1,expectedReturnDays:1,
+    searchParams:{rueckfahrt:'1',reisezeitraumAb:first,reisezeitraumBis:addDaysToDateKey(first,1),minNaechte:'1'}}
+  const normal=renderToStaticMarkup(createElement(TravelCombinations,props))
+  assert.match(normal,/Keine passende Hin- und Rückfahrt-Kombination/)
+  const failed=renderToStaticMarkup(createElement(TravelCombinations,{...props,hasSearchError:true}))
+  assert.doesNotMatch(failed,/Keine passende Hin- und Rückfahrt-Kombination/)
+})
+
+test('Urlaubsfinder preserves upstream failures instead of claiming unavailable connections',async()=>{
+  const {POST: holiday}=await import('../app/api/urlaubsfinder/route.ts')
+  const date=addDaysToDateKey(first,97)
+  failedDay=date
+  failedDayResponse={status:403,body:{status:'ERROR',code:'OPS_BLOCKED'}}
+  try {
+    const res=await holiday(req({homeStation:'Berlin Hbf',destinations:['München Hbf'],outwardDate:date}))
+    assert.equal(res.status,200)
+    const events=(await res.text()).split('\n').filter(line=>line.startsWith('data: ')).map(line=>JSON.parse(line.slice(6)))
+    const unavailable=events.find(event=>event.type==='unavailable')?.data
+    assert.ok(unavailable,'failed destination must be sent to the frontend')
+    assert.equal(unavailable.error.kind,'blocked')
+    assert.match(unavailable.reason,/HTTP 403, OPS_BLOCKED/)
+    assert.doesNotMatch(unavailable.reason,/Keine Hinfahrt|Keine Rückfahrt/)
+  } finally { failedDay=undefined;failedDayResponse={status:500,body:{}} }
 })
 
 test('round-trip progress and timeline retain the final day across the winter-time change',()=>{

@@ -13,6 +13,7 @@ import { MainNavigation } from '@/components/layout/main-navigation'
 import { PageContainer } from '@/components/layout/page-container'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { logError, logWarn } from '@/lib/shared/logger'
+import { describeSearchFailure, type SearchFailure } from '@/lib/search/search-errors'
 
 const LOG_SCOPE = "urlaubsfinder.client"
 const BACKGROUND_SEARCH_NOTICE = 'Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden.'
@@ -42,6 +43,7 @@ interface DestinationResult {
 interface UnavailableDestination {
   destination: string
   reason: string
+  error?: SearchFailure
   outwardPrice?: number
   returnPrice?: number
 }
@@ -311,6 +313,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
               } else if (eventData.type === 'unavailables') {
                 setUnavailableResults(eventData.data)
               } else if (eventData.type === 'error') {
+                setError(describeSearchFailure(eventData.message || "Preisabfrage fehlgeschlagen").message)
                 logWarn(LOG_SCOPE, "Urlaubsfinder stream returned an error event", {
                   message: eventData.message,
                 })

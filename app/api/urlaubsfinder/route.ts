@@ -6,6 +6,7 @@ import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { isUrlaubsfinderEnabled } from '@/lib/shared/feature-flags'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
+import { getDaySearchFailure, type SearchFailure } from '@/lib/search/search-errors'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -55,6 +56,7 @@ interface DestinationResult {
 interface UnavailableDestination {
   destination: string
   reason: string
+  error?: SearchFailure
   outwardPrice?: number
   returnPrice?: number
 }
@@ -516,9 +518,12 @@ export async function POST(request: NextRequest) {
               const unavailableEntry: UnavailableDestination = {
                 destination: destinationDisplayName,
                 reason,
+                error: getDaySearchFailure(outwardResult?.result?.[outwardDate]) ||
+                  (returnDate ? getDaySearchFailure(returnResult?.result?.[returnDate]) : null) || undefined,
                 outwardPrice: hasOutward ? outwardPrice : undefined,
                 returnPrice: returnDate && hasReturn ? returnPrice : undefined,
               }
+              if (unavailableEntry.error) unavailableEntry.reason = unavailableEntry.error.message
               unavailableDestinations.push(unavailableEntry)
               safeEnqueue({ type: 'unavailable', data: unavailableEntry })
             }
