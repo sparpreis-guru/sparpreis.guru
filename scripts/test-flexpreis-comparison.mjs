@@ -92,10 +92,30 @@ test('occurrence counts deduplicate journeys and distinguish frequency from days
   assert.equal(formatFlexpreisBasisOccurrences(result.basis,3),'2 Verbindungen · an 2 von 3 Reisetagen')
   assert.equal(formatFlexpreisBasisOccurrences({...result.basis,connectionCount:1,dayCount:1},1),'1 Verbindung · an 1 von 1 Reisetag')
 })
-test('equal day availability still selects the fastest, not the most numerous variant',()=>{
-  const fast=source('2026-10-20'), frequent=Array.from({length:5},(_,i)=>source('2026-10-20',['Jena','Saalfeld'],{suffix:String(i),duration:300}))
-  const result=chooseFlexpreisComparison({date:[fast,...frequent]})
-  assert.equal(result.basis.id,fast.route.key);assert.equal(result.bases[1].connectionCount,5)
+test('equal seven-day availability selects 110 unique journeys ahead of seven faster journeys',()=>{
+  const days=Object.fromEntries(Array.from({length:7},(_,i)=>{
+    const date=`2026-10-${20+i}`
+    const fast=source(date,undefined,{duration:282})
+    fast.route.transfers=1
+    const frequent=Array.from({length:i<5?16:15},(_,j)=>source(date,['Ingolstadt','Halle'],{suffix:String(j),duration:290}))
+    return [date,[fast,...Array(30).fill(fast),...frequent]]
+  }))
+  const result=chooseFlexpreisComparison(days)
+  assert.equal(result.basis.id,days['2026-10-20'].at(-1).route.key)
+  assert.equal(result.basis.connectionCount,110)
+  assert.equal(result.basis.dayCount,7)
+  assert.equal(result.basis.typicalTransfers,0)
+  assert.equal(result.bases[1].connectionCount,7)
+  assert.equal(result.bases[1].dayCount,7)
+  const requestedId=result.bases[1].id
+  assert.equal(chooseFlexpreisComparison(days,requestedId).basis.id,requestedId)
+})
+
+test('equal day and connection counts still prefer the faster journey independent of discovery order',()=>{
+  const fast=source('2026-10-20'), slow=source('2026-10-20',['Jena','Saalfeld'],{duration:300})
+  for(const sources of [[fast,slow],[slow,fast]]) {
+    assert.equal(chooseFlexpreisComparison({date:sources}).basis.id,fast.route.key)
+  }
 })
 test('typical duration is the median of unique journeys, not the fastest or the mean',()=>{
   const observed=[120,180,240,600].map((duration,i)=>source('2026-10-20',undefined,{duration,suffix:String(i)}))

@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { AlertTriangle, Check, Minus, MapPin, Calendar, Search } from "lucide-react"
+import { AlertTriangle, MapPin, Calendar, Search } from "lucide-react"
 import { handleStationSuggestionKeyDown } from "@/components/search/station-suggestion-navigation"
 import { ICE_STATIONS, getDefaultStations } from "@/lib/stations/ice-stations"
 import { logError } from "@/lib/shared/logger"
@@ -88,12 +88,30 @@ const CURATED_SMALL_CITIES_PRESET = [
 ]
 
 const DESTINATION_PRESETS = [
-  { label: "Großstädte", names: ICE_STATIONS.filter(s => s.isDefault).map(s => s.name) },
-  { label: "Kleinere Städte", names: CURATED_SMALL_CITIES_PRESET.filter(name => ICE_STATIONS.some(s => s.name === name)) },
-  { label: "Europäische Ziele", names: ICE_STATIONS.filter(s => s.region === "Europa").map(s => s.name) },
+  {
+    label: "Großstädte",
+    icon: "🏙️",
+    names: ICE_STATIONS.filter(s => s.isDefault).map(s => s.name),
+    idleClass: "border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100",
+    selectedClass: "border-blue-400 bg-blue-100 text-blue-800 hover:bg-blue-200",
+  },
+  {
+    label: "Kleine Städte (Empfehlung)",
+    icon: "🌳",
+    names: CURATED_SMALL_CITIES_PRESET.filter(name => ICE_STATIONS.some(s => s.name === name)),
+    idleClass: "border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100",
+    selectedClass: "border-emerald-400 bg-emerald-100 text-emerald-800 hover:bg-emerald-200",
+  },
+  {
+    label: "Europäische Ziele",
+    icon: "🌍",
+    names: ICE_STATIONS.filter(s => s.region === "Europa").map(s => s.name),
+    idleClass: "border-purple-300 bg-purple-50 text-purple-700 hover:bg-purple-100",
+    selectedClass: "border-purple-400 bg-purple-100 text-purple-800 hover:bg-purple-200",
+  },
 ]
 
-const destinationActionClass = "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium text-gray-600 hover:bg-gray-100 hover:text-gray-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
+const destinationActionClass = "inline-flex min-h-7 items-center justify-center rounded-md px-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-50 hover:text-blue-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:text-gray-400"
 
 function normalizeDiscount(art: string, klasse: string): { art: string; klasse: string } {
   const normalizedArt =
@@ -230,10 +248,12 @@ export function UrlauberfinderSearchForm({
   ).sort((a, b) => a.localeCompare(b, "de"))
 
   const destinationGroups = [
-    { label: "Großstädte", stations: ICE_STATIONS.filter(s => s.isDefault) },
-    { label: "Europäische Ziele", stations: ICE_STATIONS.filter(s => s.region === "Europa") },
+    { label: "Großstädte", icon: "🏙️", headingClass: "text-gray-500", stations: ICE_STATIONS.filter(s => s.isDefault) },
+    { label: "Europäische Ziele", icon: "🌍", headingClass: "text-purple-700", stations: ICE_STATIONS.filter(s => s.region === "Europa") },
     ...germanRegionsSorted.map(region => ({
       label: region,
+      icon: null,
+      headingClass: "text-gray-500",
       stations: ICE_STATIONS.filter(s => !s.isDefault && s.region === region),
     })),
   ]
@@ -690,7 +710,7 @@ export function UrlauberfinderSearchForm({
           aria-describedby={selectedDestinations.length === 0 ? "destinations-error" : "destinations-hint"}
           className="rounded-xl border border-gray-200 bg-white p-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:p-4"
         >
-          <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="mb-3 flex items-center justify-between gap-2">
             <h3 id="destinations-heading" className="text-md flex items-center gap-2 font-semibold text-gray-700">
               <MapPin className="h-4 w-4 text-blue-600" aria-hidden="true" />
               Reiseziele
@@ -699,11 +719,11 @@ export function UrlauberfinderSearchForm({
               {selectedDestinations.length} ausgewählt
             </span>
           </div>
-          <p id="destinations-hint" className="mb-3 text-xs text-gray-600">
+          <p id="destinations-hint" className="sr-only">
             Welche Ziele sollen wir vergleichen? Wähle Zielgruppen oder einzelne Städte.
           </p>
 
-          <div className="mb-2 flex flex-wrap gap-2" role="group" aria-label="Zielgruppen auswählen">
+          <div className="mb-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Zielgruppen und Sammelaktionen">
             {DESTINATION_PRESETS.map(preset => {
               const allSelected = preset.names.every(name => selectedDestinations.includes(name))
               const partlySelected = preset.names.some(name => selectedDestinations.includes(name))
@@ -713,37 +733,31 @@ export function UrlauberfinderSearchForm({
                   type="button"
                   onClick={() => togglePreset(preset.names)}
                   aria-pressed={allSelected ? true : partlySelected ? "mixed" : false}
-                  className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
-                    allSelected || partlySelected
-                      ? "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100"
-                      : "border-gray-300 bg-white text-gray-700 hover:border-blue-300 hover:bg-blue-50"
-                  }`}
+                  className={`inline-flex min-h-7 items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                    allSelected || partlySelected ? preset.selectedClass : preset.idleClass
+                  } ${partlySelected && !allSelected ? "border-dashed" : ""}`}
                 >
-                  {partlySelected
-                    ? allSelected
-                      ? <Check className="h-3.5 w-3.5" aria-hidden="true" />
-                      : <Minus className="h-3.5 w-3.5" aria-hidden="true" />
-                    : null}
-                  {`${preset.label} ${allSelected ? "abwählen" : "wählen"}`}
+                  <span aria-hidden="true">{preset.icon}</span>
+                  {preset.label}
                 </button>
               )
             })}
-          </div>
-          <div className="mb-3 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => setSelectedDestinations(ICE_STATIONS.map(s => s.name))}
               disabled={selectedDestinations.length === ICE_STATIONS.length}
-              className={destinationActionClass}
+              className="inline-flex min-h-7 items-center gap-1 rounded-full border border-gray-300 bg-gray-50 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
             >
-              Alle Ziele auswählen
+              <span aria-hidden="true">✓</span>
+              Alle Ziele
             </button>
             <button
               type="button"
               onClick={() => setSelectedDestinations([])}
               disabled={selectedDestinations.length === 0}
-              className={destinationActionClass}
+              className="inline-flex min-h-7 items-center gap-1 rounded-full border border-red-200 bg-red-50 px-2.5 py-1 text-xs font-medium text-red-700 transition-colors hover:bg-red-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:opacity-50"
             >
+              <span aria-hidden="true">✕</span>
               Auswahl leeren
             </button>
           </div>
@@ -760,8 +774,11 @@ export function UrlauberfinderSearchForm({
               const allSelected = names.every(name => selectedDestinations.includes(name))
               return (
                 <div key={group.label} role="group" aria-labelledby={`destination-group-${index}`}>
-                  <div className="mb-1.5 flex items-center justify-between gap-2">
-                    <h4 id={`destination-group-${index}`} className="text-xs font-semibold text-gray-600">{group.label}</h4>
+                  <div className="mb-1 flex items-center justify-between gap-2">
+                    <h4 id={`destination-group-${index}`} className={`flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide ${group.headingClass}`}>
+                      {group.icon && <span aria-hidden="true">{group.icon}</span>}
+                      {group.label}
+                    </h4>
                     <button
                       type="button"
                       onClick={() => togglePreset(names)}
@@ -771,7 +788,7 @@ export function UrlauberfinderSearchForm({
                       {allSelected ? "Alle abwählen" : "Alle wählen"}
                     </button>
                   </div>
-                  <div className="flex flex-wrap gap-2">
+                  <div className="flex flex-wrap gap-1.5">
                     {group.stations.map(station => {
                       const checked = selectedDestinations.includes(station.name)
                       return (
@@ -784,13 +801,12 @@ export function UrlauberfinderSearchForm({
                               ? prev.filter(name => name !== station.name)
                               : [...prev, station.name]
                           )}
-                          className={`inline-flex min-h-11 items-center gap-1.5 rounded-full border px-3 py-2 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
+                          className={`inline-flex min-h-7 items-center rounded-full border px-2.5 py-1 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 ${
                             checked
                               ? "border-blue-600 bg-blue-600 text-white hover:bg-blue-700"
                               : "border-gray-300 bg-white text-gray-700 hover:border-blue-400 hover:text-blue-700"
                           }`}
                         >
-                          <Check className={`h-3.5 w-3.5 shrink-0 ${checked ? "opacity-100" : "opacity-0"}`} aria-hidden="true" />
                           {station.displayName.replace(" Hauptbahnhof", "")}
                         </button>
                       )
@@ -800,7 +816,6 @@ export function UrlauberfinderSearchForm({
               )
             })}
           </div>
-          <p className="mt-2 text-xs text-gray-500">Weitere Ziele findest du durch Scrollen in der Liste.</p>
         </div>
 
         <div className="rounded-xl border border-gray-200 bg-gray-50/60 p-3 sm:p-4">

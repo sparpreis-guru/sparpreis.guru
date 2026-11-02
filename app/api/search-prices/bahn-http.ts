@@ -39,7 +39,7 @@ export function isTemporaryBahnNetworkError(error: unknown): boolean {
 
 const [opensslMajor, opensslMinor] = process.versions.openssl.split(".").map(Number)
 const bahnKeyExchangeGroups = opensslMajor > 3 || (opensslMajor === 3 && opensslMinor >= 5)
-  ? "X25519MLKEM768:X25519:P-256:P-384"
+  ? "X25519MLKEM768:X25519:P-384:P-256"
   : "X25519:P-256:P-384"
 
 const bahnAgent = new Agent({
@@ -50,9 +50,9 @@ const bahnAgent = new Agent({
     // Some local Windows/Node setups select an unreachable Akamai IPv6 route
     // for bahn.de and never fall back to the working IPv4 addresses.
     family: 4,
-    // Akamai rejects the default Node supported_groups list and the former
-    // TLS 1.2 workaround with OPS_BLOCKED. Use explicit groups while allowing
-    // TLS 1.3; keep hybrid key exchange on OpenSSL 3.5+ (Node 24+).
+    // Akamai's OPS_BLOCKED response is sensitive to supported_groups ordering.
+    // Keep the live-verified order, including P-384 before P-256 on OpenSSL 3.5+,
+    // while retaining TLS 1.3 and hybrid key exchange (Node 24+).
     // Reproduction and limitations: docs/bahn-api-transport.md.
     ecdhCurve: bahnKeyExchangeGroups,
   },

@@ -14,7 +14,7 @@ import { describeSearchFailure, getSearchFailures, type SearchFailure } from "@/
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 import { getEligibleDateKeys, getFeasibleReturnSearchDates } from "@/lib/search/return-search-feasibility"
-import { mergeFlexpreisDays, rebaseFlexpreisResults, type FlexpreisDayData, type FlexpreisComparison } from "@/lib/search/flexpreis-comparison"
+import { flexpreisCellAmount, mergeFlexpreisDays, rebaseFlexpreisResults, type FlexpreisDayData, type FlexpreisComparison } from "@/lib/search/flexpreis-comparison"
 
 const LOG_SCOPE = "bestpreissuche.client"
 const BACKGROUND_SEARCH_NOTICE = "Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden."
@@ -1085,6 +1085,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
   const minPrice = Math.min(...prices)
   const maxPrice = Math.max(...prices)
   const avgPrice = Math.round(prices.reduce((a: number, b: number) => a + b, 0) / prices.length)
+  const flexpreisPrices = validPriceResults
+    .map(([, result]) => flexpreisCellAmount(result.flexpreis, _meta?.flexComparison?.basis?.id))
+    .filter((price): price is number => price !== undefined)
   const searchFailures = getSearchFailures([
     ...validPriceResults.map(([, data]) => data),
     ...Object.values(returnPriceResults),
@@ -1187,6 +1190,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
             <DayDetailsPanel
                 flexComparison={_meta?.flexComparison}
+                flexpreisPrices={flexpreisPrices}
                 onFlexBasisChange={changeFlexBasis}
                 isFlexBasisLoading={isFlexBasisLoading}
                 date={selectedDay}
@@ -1197,7 +1201,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                 onNavigateDay={handleNavigateDay}
                 dayKeys={dayKeys}
                 isLoading={Boolean(isStreaming && !selectedData)}
-                onCheckFlexpreise={isStreaming ? undefined : checkFlexpreisAlternatives}
+                onCheckFlexpreise={checkFlexpreisAlternatives}
                 isCheckingFlexpreise={flexLookupDate === selectedDay}
                 isFlexpreisPending={selectedData?.flexpreis?.status === "pending" && (
                   isStreaming || (lazyDayRequest?.date === selectedDay && lazyDayRequest.status === "loading")

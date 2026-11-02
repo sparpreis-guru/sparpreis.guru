@@ -45,6 +45,7 @@ interface PriceData {
 
 interface DayDetailsPanelProps {
   flexComparison?: FlexpreisComparison
+  flexpreisPrices?: number[]
   onFlexBasisChange?: (id: string) => void
   isFlexBasisLoading?: boolean
   onCheckFlexpreise?: (date: string) => void
@@ -81,6 +82,7 @@ const variants = {
 
 export function DayDetailsPanel({
   flexComparison,
+  flexpreisPrices,
   onFlexBasisChange,
   isFlexBasisLoading = false,
   date,
@@ -371,7 +373,10 @@ export function DayDetailsPanel({
                 {isFlexpreisComparison && (
                   <>
                     <FlexpreisDayComparison
+                      origin={startStation?.name}
+                      destination={zielStation?.name}
                       comparison={flexComparison}
+                      comparisonPrices={flexpreisPrices}
                       onBasisChange={onFlexBasisChange}
                       isBasisLoading={isFlexBasisLoading}
                       data={data.flexpreis}

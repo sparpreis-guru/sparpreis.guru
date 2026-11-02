@@ -72,6 +72,7 @@ export function JourneyBookingButton({
   ariaLabel,
   label: customLabel,
   mobileLabel = "Buchen",
+  disabled = false,
 }: {
   direction: "one-way" | "outward" | "return"
   href?: string
@@ -81,6 +82,7 @@ export function JourneyBookingButton({
   ariaLabel?: string
   label?: string
   mobileLabel?: string
+  disabled?: boolean
 }) {
   const label = customLabel || (direction === "one-way"
     ? "Fahrt buchen"
@@ -106,7 +108,7 @@ export function JourneyBookingButton({
     </>
   )
 
-  if (href) {
+  if (href && !disabled) {
     return (
       <Button asChild size="sm" variant={direction === "return" ? "outline" : "default"} className={buttonClasses}>
         <a href={href} target="_blank" rel="noopener noreferrer" aria-label={ariaLabel || label} title={label}>{content}</a>
@@ -123,6 +125,7 @@ export function JourneyBookingButton({
       onClick={onClick}
       title={label}
       aria-label={ariaLabel || label}
+      disabled={disabled}
     >
       {content}
     </Button>
@@ -524,6 +527,7 @@ function JourneyConnectionOverview({
   transfersControlsId,
   widthReferenceOrigin,
   widthReferenceDestination,
+  isLoading = false,
 }: {
   departure?: string
   arrival?: string
@@ -539,6 +543,7 @@ function JourneyConnectionOverview({
   transfersControlsId?: string
   widthReferenceOrigin?: string
   widthReferenceDestination?: string
+  isLoading?: boolean
 }) {
   const arrivalDayOffset = getArrivalDayOffset(departure, arrival)
 
@@ -551,13 +556,13 @@ function JourneyConnectionOverview({
     )}>
       <div className="grid w-full min-w-0 grid-cols-[minmax(0,1fr)_1.25rem_minmax(0,1fr)] items-center gap-x-1 sm:w-fit sm:min-w-[18rem] sm:grid-cols-[minmax(0,max-content)_1.25rem_minmax(0,max-content)] sm:justify-between sm:gap-x-2">
           <div className="min-w-0 sm:max-w-[13rem]">
-            <div className="text-lg font-bold leading-none tabular-nums text-gray-950">{formatTime(departure)}</div>
-            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={origin}>{origin || "–"}</div>
+            <div className="text-lg font-bold leading-none tabular-nums text-gray-950">{isLoading && !departure ? <JourneyLoadingValue width="5ch" /> : formatTime(departure)}</div>
+            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={origin}>{origin || (isLoading ? <JourneyLoadingValue width="12ch" /> : "–")}</div>
           </div>
           <ArrowRight className="h-4 w-4 justify-self-center text-blue-400" />
           <div className="min-w-0 pr-3 text-right sm:max-w-[13rem] sm:pr-0">
             <div className="relative inline-block text-lg font-bold leading-none tabular-nums text-gray-950">
-              {formatTime(arrival)}
+              {isLoading && !arrival ? <JourneyLoadingValue width="5ch" /> : formatTime(arrival)}
               {arrivalDayOffset > 0 && (
                 <sup
                   className="absolute left-full top-0 ml-0.5 text-[10px] font-semibold leading-none text-blue-600"
@@ -568,7 +573,7 @@ function JourneyConnectionOverview({
                 </sup>
               )}
             </div>
-            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={destination}>{destination || "–"}</div>
+            <div className="mt-1.5 truncate text-xs font-medium text-gray-700" title={destination}>{destination || (isLoading ? <JourneyLoadingValue width="14ch" /> : "–")}</div>
           </div>
           {widthReferenceOrigin && (
             <span className="pointer-events-none invisible col-start-1 row-start-2 hidden h-0 max-w-[13rem] whitespace-nowrap text-xs font-medium sm:block" aria-hidden="true">
@@ -601,14 +606,14 @@ function JourneyConnectionOverview({
             ) : (
               <Clock className="h-3.5 w-3.5 text-gray-400" />
             )}
-            {departure && arrival ? calculateDuration(departure, arrival) : "–"}
+            {departure && arrival ? calculateDuration(departure, arrival) : isLoading ? <JourneyLoadingValue width="7ch" /> : "–"}
           </span>
-          <TransferFact
+          {isLoading && transfers === undefined ? <span className="inline-flex py-1"><JourneyLoadingValue width="9ch" /></span> : <TransferFact
             transfers={transfers}
             onToggle={onTransfersClick}
             expanded={transfersExpanded}
             controlsId={transfersControlsId}
-          />
+          />}
         </div>
         {showVehicleTypes && (
           <div className={cn(
@@ -616,7 +621,7 @@ function JourneyConnectionOverview({
               ? "hidden sm:block"
               : "w-max max-w-full shrink-0 sm:w-auto sm:max-w-none"
           )}>
-            <VehicleTypesSummary interval={{ abschnitte: legs || [] }} />
+            {isLoading && !legs?.length ? <span className="inline-flex border border-transparent px-1.5 py-0.5 text-xs"><JourneyLoadingValue width="4ch" /></span> : <VehicleTypesSummary interval={{ abschnitte: legs || [] }} />}
           </div>
         )}
       </div>
@@ -637,6 +642,7 @@ export function OneWayJourneySummary({
   transfersExpanded = false,
   transfersControlsId,
   stationWidthReference,
+  isLoading = false,
 }: {
   journey: OneWayJourneyData
   leadingContent?: ReactNode
@@ -652,8 +658,11 @@ export function OneWayJourneySummary({
   transfersExpanded?: boolean
   transfersControlsId?: string
   stationWidthReference?: { origin?: string; destination?: string }
+  isLoading?: boolean
 }) {
   const hasHeaderRow = Boolean(leadingContent || mobileBadges || desktopBadges || priceInMobileHeader)
+  const priceLabel = isLoading ? "Preis wird geladen" : `Preis ${formatPrice(journey.price)}`
+  const priceContent = isLoading ? <JourneyLoadingValue width="7ch" /> : formatPrice(journey.price)
 
   return (
     <div>
@@ -668,8 +677,8 @@ export function OneWayJourneySummary({
             <div className="hidden shrink-0 flex-wrap items-center gap-1.5 sm:flex">{desktopBadges}</div>
           </div>
           {priceInMobileHeader && (
-            <div className={cn("shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:hidden", priceTone)} aria-label={`Preis ${formatPrice(journey.price)}`}>
-              <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums">{formatPrice(journey.price)}</span>
+            <div className={cn("shrink-0 rounded-md border px-2 py-1 text-right shadow-sm sm:hidden", priceTone)} aria-label={priceLabel}>
+              <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums">{priceContent}</span>
             </div>
           )}
         </div>
@@ -697,6 +706,7 @@ export function OneWayJourneySummary({
             transfersControlsId={transfersControlsId}
             widthReferenceOrigin={stationWidthReference?.origin}
             widthReferenceDestination={stationWidthReference?.destination}
+            isLoading={isLoading}
           />
         </div>
         <div
@@ -705,15 +715,19 @@ export function OneWayJourneySummary({
             priceInMobileHeader ? "hidden" : "block",
             priceTone
           )}
-          aria-label={`Preis ${formatPrice(journey.price)}`}
+          aria-label={priceLabel}
         >
           <span className="whitespace-nowrap text-lg font-bold leading-none tabular-nums sm:text-xl">
-            {formatPrice(journey.price)}
+            {priceContent}
           </span>
         </div>
       </section>
     </div>
   )
+}
+
+function JourneyLoadingValue({ width }: { width: string }) {
+  return <span aria-hidden="true" style={{ width }} className="inline-block max-w-full animate-pulse motion-reduce:animate-none rounded bg-gray-200 text-transparent">–</span>
 }
 
 export function OneWayJourneyDetails({ journey, id }: { journey: OneWayJourneyData; id?: string }) {
