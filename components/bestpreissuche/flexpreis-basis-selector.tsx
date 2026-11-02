@@ -104,7 +104,7 @@ export function FlexpreisBasisSelector({ comparison, isLoading, onChange, showEx
           <div className="pb-1 pt-1 text-xs leading-5 text-gray-600">
             <dl className="grid gap-x-4 gap-y-1 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-y-2">
               <dt className="font-semibold text-gray-800">Vorauswahl</dt>
-              <dd className="mb-2 sm:mb-0">Automatisch wählen wir den Reiseweg, den wir an den meisten Reisetagen finden. Bei Gleichstand den schnelleren.</dd>
+              <dd className="mb-2 sm:mb-0">Automatisch wählen wir den Reiseweg, den wir an den meisten Reisetagen finden. Bei gleicher Zahl an Reisetagen bevorzugen wir den Weg mit mehr gefundenen Verbindungen, danach die schnellere Verbindung.</dd>
               <dt className="font-semibold text-gray-800">Ticketgültigkeit</dt>
               <dd className="mb-2 sm:mb-0">Die genutzte Bahn-Schnittstelle liefert nicht die spätere VIA-Angabe des Tickets. Gefundene Zwischenhalte dienen als Orientierung, bestätigen aber keine Streckengültigkeit.</dd>
               <dt className="font-semibold text-gray-800">Preisvergleich</dt>

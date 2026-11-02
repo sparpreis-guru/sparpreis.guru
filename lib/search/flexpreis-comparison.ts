@@ -223,7 +223,8 @@ export function chooseFlexpreisComparison(days: Record<string, FlexpreisSource[]
       }
     }
   }
-  const ranked = [...groups.values()].sort((a, b) => b.days.size - a.days.size || preferFlexpreisSource(a.source, b.source))
+  const ranked = [...groups.values()].sort((a, b) => b.days.size - a.days.size ||
+    b.connections.size - a.connections.size || preferFlexpreisSource(a.source, b.source))
   const labels = getFlexpreisRouteLabels(ranked.map(({ source }) => source.route))
   const bases = ranked.map(({ source, days, connections }) => ({ id: source.route.key,
     label: labels.get(source.route.key)!, productClass: source.route.productClass,
