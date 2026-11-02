@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { flexpreisStatusLabel, getFlexpreisProductLabel, getFlexpreisRouteLabels, type FlexpreisBasis, type FlexpreisComparison, type FlexpreisDayData, type FlexpreisQuote } from "@/lib/search/flexpreis-comparison"
 import { FlexpreisBasisSelector } from "./flexpreis-basis-selector"
+import { createPriceBandScale, getPriceBandClasses } from "@/lib/train-search/price-bands"
 
 function QuoteRow({ quote, routeLabel, comparison = false, basis, origin, destination, priceTone = "border-gray-200 bg-gray-50 text-gray-950" }: {
   quote?: FlexpreisQuote; routeLabel: string; comparison?: boolean; basis?: FlexpreisBasis; origin?: string; destination?: string
@@ -79,13 +80,19 @@ function QuoteRow({ quote, routeLabel, comparison = false, basis, origin, destin
 }
 
 export function FlexpreisDayComparison({ data, onCheckMore, isPending = false, isChecking = false, error,
-  comparison: routeComparison, onBasisChange, isBasisLoading = false, origin, destination }: {
+  comparison: routeComparison, comparisonPrices = [], onBasisChange, isBasisLoading = false, origin, destination }: {
   data?: FlexpreisDayData; onCheckMore?: () => void; isPending?: boolean; isChecking?: boolean; error?: string
   comparison?: FlexpreisComparison; onBasisChange?: (id: string) => void; isBasisLoading?: boolean
+  comparisonPrices?: number[]
   origin?: string; destination?: string
 }) {
   const comparison = data?.comparisonQuote
   const others = data?.quotes.filter(q => q.connectionKey !== comparison?.connectionKey) || []
+  // Use the calendar's period-wide scale, including for additionally checked offers.
+  const priceScale = createPriceBandScale(comparisonPrices)
+  const getQuotePriceTone = (quote: FlexpreisQuote) => priceScale.min > 0
+    ? getPriceBandClasses(priceScale.getBand(quote.amountCents / 100))
+    : "border-gray-200 bg-gray-50 text-gray-950"
   const labels = getFlexpreisRouteLabels([...(comparison ? [comparison.route] : []), ...others.map(q => q.route)])
   return (
     <section className="overflow-hidden rounded-lg border border-blue-200 bg-white" aria-label="Flexpreise">
@@ -99,11 +106,11 @@ export function FlexpreisDayComparison({ data, onCheckMore, isPending = false, i
       </header>
       {routeComparison && <FlexpreisBasisSelector showExplanation={false} comparison={routeComparison} onChange={onBasisChange} isLoading={isBasisLoading} />}
       <div className="space-y-3 bg-slate-100/80 p-2.5 sm:p-3" aria-busy={isPending || isChecking}>
-        {comparison ? <QuoteRow quote={comparison} routeLabel={labels.get(comparison.route.key)!} comparison /> :
+        {comparison ? <QuoteRow quote={comparison} routeLabel={labels.get(comparison.route.key)!} comparison priceTone={getQuotePriceTone(comparison)} /> :
           isPending ? <QuoteRow comparison basis={routeComparison?.basis} routeLabel={routeComparison?.basis?.label ?? ""} origin={origin} destination={destination} /> : <p className="text-sm text-gray-700" role="status">{data?.status === "pending" ? "Flexpreis nicht abschließend geprüft." : flexpreisStatusLabel(data?.status)}</p>}
         {others.length > 0 && <>
           <h4 className="pt-2 text-sm font-semibold text-gray-800">Weitere geprüfte Flexpreise</h4>
-          {others.map(quote => <QuoteRow key={quote.connectionKey} quote={quote} routeLabel={labels.get(quote.route.key)!} />)}
+          {others.map(quote => <QuoteRow key={quote.connectionKey} quote={quote} routeLabel={labels.get(quote.route.key)!} priceTone={getQuotePriceTone(quote)} />)}
         </>}
         {onCheckMore && <Button type="button" variant="outline" size="sm" onClick={onCheckMore} disabled={isChecking || isPending || isBasisLoading}>
           {isChecking && <Loader2 className="mr-2 h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />}

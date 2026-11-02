@@ -282,6 +282,34 @@ test('rendered extra day keeps a single bounded loader until its Flexpreis arriv
   assert.ok(!checkButton(finishedWithQuote).includes('disabled=""'),'completion enables the existing action')
 })
 
+test('day details color all Flexpreis offers using the calendar period instead of ordinary or daily prices',async()=>{
+  const {DayDetailsPanel}=await import('../components/bestpreissuche/day-details-panel.tsx')
+  const source=buildFlexpreisSource(journey(first))
+  const comparison=chooseFlexpreisComparison({[first]:[source]})
+  const quote={connectionKey:source.connectionKey,amountCents:12440,currency:'EUR',name:'Flexpreis',
+    productClass:source.route.productClass,conditions:[],route:source.route,legs:source.legs,
+    recordedAt:Date.now(),bookingKind:'search'}
+  const cheaper={...quote,connectionKey:'cheaper',amountCents:11490}
+  const expensive={...quote,connectionKey:'expensive',amountCents:20000}
+  const props={date:first,searchParams:defaults,flexComparison:comparison,
+    flexpreisPrices:[114.9,124.4,200],data:{preis:19.99,info:'',
+      abfahrtsZeitpunkt:source.route.representativeDeparture,ankunftsZeitpunkt:source.route.representativeArrival,
+      flexpreis:{version:1,basisId:comparison.basis.id,status:'priced',comparisonQuote:quote,
+        quotes:[quote,cheaper,expensive],alternativesStatus:'complete'}}}
+  const assertPriceColor=(markup,price,color)=>{
+    const boxes=[...markup.matchAll(new RegExp(`<div class="([^"]*)" aria-label="Preis ${price}">`,'g'))]
+    assert.equal(boxes.length,2,'both the mobile and desktop price box receive the color')
+    for(const [,classes] of boxes) assert.ok(classes.includes(color),`${price}: expected ${color}, got ${classes}`)
+  }
+  const markup=renderToStaticMarkup(createElement(DayDetailsPanel,props))
+  assertPriceColor(markup,'114,90 €','bg-green-100')
+  assertPriceColor(markup,'124,40 €','bg-emerald-50')
+  assertPriceColor(markup,'200,00 €','bg-red-50')
+  // A cheaper price on another queried day changes this day's color immediately.
+  const updated=renderToStaticMarkup(createElement(DayDetailsPanel,{...props,flexpreisPrices:[100,114.9,124.4,200]}))
+  assertPriceColor(updated,'114,90 €','bg-emerald-50')
+})
+
 test('calendar and result selectors share a route with unique labels and no change action for a single route',async()=>{
   const {createElement,Fragment}=await import('react')
   const {renderToStaticMarkup}=await import('react-dom/server')
