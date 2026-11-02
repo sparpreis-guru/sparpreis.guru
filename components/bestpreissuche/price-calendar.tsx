@@ -252,6 +252,8 @@ export function PriceCalendar({
     return Boolean(
       result &&
       result.preis > 0 &&
+      result.flexpreis &&
+      result.flexpreis.status !== "pending" &&
       !flexpreisCellAmount(result.flexpreis, flexComparison?.basis?.id)
     )
   })
@@ -576,7 +578,7 @@ export function PriceCalendar({
                 month: "long",
               })
               const cellAriaLabel = isPendingDay
-                ? `${formattedCellDate}: ${loadingPhase === "flexpreis" ? "Flexpreis wird abgefragt" : "Preis wird abgefragt"}`
+                ? `${formattedCellDate}: ${loadingPhase === "flexpreis" ? "Flexpreis wird abgefragt" : "Bestpreise werden geprüft"}`
                 : dayFailure
                 ? `${formattedCellDate}: ${dayFailure.message}`
                 : flexPriceUnavailable
@@ -632,8 +634,8 @@ export function PriceCalendar({
                       <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-1 overflow-hidden text-blue-600">
                         <Loader2 className="h-4 w-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                         <span className="text-center text-[10px] font-medium leading-tight sm:text-xs">
-                          <span className="sm:hidden">{loadingPhase === "flexpreis" ? "Flex" : "Preis"}</span>
-                          <span className="hidden sm:inline">{loadingPhase === "flexpreis" ? "Flexpreis" : "Preis"}<br />wird geprüft</span>
+                          <span className="sm:hidden">{loadingPhase === "flexpreis" ? "Flex" : "Bestpreise"}</span>
+                          <span className="hidden sm:inline">{loadingPhase === "flexpreis" ? "Flexpreis" : "Bestpreise"}<br />{loadingPhase === "flexpreis" ? "wird geprüft" : "werden geprüft"}</span>
                         </span>
                       </div>
                     ) : hasResult ? (
@@ -712,16 +714,19 @@ export function PriceCalendar({
             {activePriceLabel} · {selectedClassLabel} · {activeBindingLabel}
             <span className="font-normal text-blue-700"> ({selectedAgeLabel} · {selectedDiscountLabel})</span>
           </p>
-          <p className="mx-auto mt-1 max-w-3xl text-center leading-4">
-            {priceView === "flexpreis"
-              ? "Preise ausgewählter Verbindungen. Die Streckengültigkeit richtet sich nach dem Ticket."
-              : "Der Kalender zeigt pro Reisetag den günstigsten gefundenen Ticketpreis für deine Suche."}
-          </p>
-          {hasUnavailableFlexPrices && (
-            <p className="mx-auto mt-1 max-w-3xl text-center leading-4 text-blue-800">
-              Für einzelne Tage fehlt ein passender Vergleichstreffer. Details findest du beim jeweiligen Tag.
+          {priceView === "flexpreis" ? (
+            <p className="mx-auto mt-1 grid max-w-3xl text-center leading-4 text-blue-800">
+              {/* Both texts share a grid cell so wrapping reserves the same height in either state. */}
+              <span className={`col-start-1 row-start-1${hasUnavailableFlexPrices ? " invisible" : ""}`} aria-hidden={hasUnavailableFlexPrices || undefined}>
+                Preise ausgewählter Verbindungen. Die Streckengültigkeit richtet sich nach dem Ticket.
+              </span>
+              <span className={`col-start-1 row-start-1${hasUnavailableFlexPrices ? "" : " invisible"}`} aria-hidden={!hasUnavailableFlexPrices || undefined}>
+                Für einzelne Tage fehlt ein passender Vergleichstreffer. Details findest du beim jeweiligen Tag.
+              </span>
             </p>
-          )}
+          ) : <p className="mx-auto mt-1 max-w-3xl text-center leading-4">
+            Der Kalender zeigt pro Reisetag den günstigsten gefundenen Ticketpreis für deine Suche.
+          </p>}
         </div>
 
       </div>

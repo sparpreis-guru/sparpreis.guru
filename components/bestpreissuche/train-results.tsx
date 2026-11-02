@@ -1197,7 +1197,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
                 onNavigateDay={handleNavigateDay}
                 dayKeys={dayKeys}
                 isLoading={Boolean(isStreaming && !selectedData)}
-                onCheckFlexpreise={isStreaming ? undefined : checkFlexpreisAlternatives}
+                onCheckFlexpreise={checkFlexpreisAlternatives}
                 isCheckingFlexpreise={flexLookupDate === selectedDay}
                 isFlexpreisPending={selectedData?.flexpreis?.status === "pending" && (
                   isStreaming || (lazyDayRequest?.date === selectedDay && lazyDayRequest.status === "loading")

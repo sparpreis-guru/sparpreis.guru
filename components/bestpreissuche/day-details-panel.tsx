@@ -371,6 +371,8 @@ export function DayDetailsPanel({
                 {isFlexpreisComparison && (
                   <>
                     <FlexpreisDayComparison
+                      origin={startStation?.name}
+                      destination={zielStation?.name}
                       comparison={flexComparison}
                       onBasisChange={onFlexBasisChange}
                       isBasisLoading={isFlexBasisLoading}

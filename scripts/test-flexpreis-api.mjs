@@ -230,6 +230,20 @@ test('rendered extra day keeps a single bounded loader until its Flexpreis arriv
   assert.match(complete,/md:block">172,20 €<\/span>/,'wide calendar cells keep both decimal places')
   assert.match(complete,/title="172,20 €"/)
   assert.match(complete,/aria-label="[^"]*Flexpreis 172,20 €"/)
+  const footer=markup=>markup.match(/<div class="border-t bg-blue-50[^\"]*">([\s\S]*?)<\/div>/)?.[1]
+  const pendingFooter=footer(html),completeFooter=footer(complete)
+  assert.ok(pendingFooter)
+  assert.equal(pendingFooter,completeFooter,'calendar footer keeps its content and geometry when the final pending price arrives')
+  assert.ok(!completeFooter.includes('Details zur Vergleichsverbindung und ihrem Preis'),'no redundant footer instruction')
+  const warning=markup=>markup.match(/<span[^>]*>Für einzelne Tage fehlt[\s\S]*?<\/span>/)?.[0]
+  assert.match(warning(pendingFooter),/aria-hidden="true"/,'pending prices are not missing comparison results')
+  const missing=renderToStaticMarkup(createElement(PriceCalendar,{...props,lazyDayRequest:undefined,
+    results:{[date]:{...ordinary,flexpreis:{...pending,status:'missing_connection'}}}}))
+  const missingFooter=footer(missing)
+  assert.ok(missingFooter)
+  assert.ok(!warning(missingFooter).includes('aria-hidden="true"'),'a confirmed missing comparison result shows the warning')
+  const visibleState=markup=>markup.replaceAll(' invisible','').replaceAll(' aria-hidden="true"','')
+  assert.equal(visibleState(missingFooter),visibleState(completeFooter),'the warning replaces the hint within the same reserved text area')
   const ordinaryCalendar=renderToStaticMarkup(createElement(PriceCalendar,{...props,tarif:'SPARPREIS'}))
   assert.match(ordinaryCalendar,/md:hidden">20€<\/span>/,'ordinary prices use the same compact calendar format')
   assert.match(ordinaryCalendar,/title="19,99 €"/)
@@ -239,6 +253,33 @@ test('rendered extra day keeps a single bounded loader until its Flexpreis arriv
   assert.match(row,/aria-controls=/)
   assert.match(row,/Bei der Bahn prüfen/)
   assert.match(row,/>Prüfen<\/span>/)
+
+  const routeComparison=chooseFlexpreisComparison({[date]:[source]})
+  const known={comparison:routeComparison,origin:source.route.origin.name,destination:source.route.destination.name}
+  const loadingRow=renderToStaticMarkup(createElement(FlexpreisDayComparison,{...known,data:pending,isPending:true}))
+  const pricedRow=renderToStaticMarkup(createElement(FlexpreisDayComparison,{...known,data:priced}))
+  for(const value of [source.route.origin.name,source.route.destination.name,'Flexpreis','ICE','Vergleichsverbindung']) {
+    assert.ok(loadingRow.includes(value),`known ${value} remains visible while pricing`)
+  }
+  assert.ok(loadingRow.includes(routeComparison.basis.label.replace('ICE · ','')))
+  assert.equal((loadingRow.match(/disabled=""/g)||[]).length,3,'journey, offer and booking actions reserve their space but are disabled')
+  assert.ok(!loadingRow.includes('172,20'),'pending price is not an old quote')
+  assert.ok(!loadingRow.includes('08:00'),'unknown exact times are not copied from another journey')
+  const loadingArticle=loadingRow.match(/<article\b[\s\S]*?<\/article>/)?.[0]
+  assert.ok(loadingArticle)
+  assert.ok(!loadingArticle.includes('ca. 4 h'),'typical duration stays in the selector instead of becoming an exact journey duration')
+  const journeySection=html=>html.match(/<section class="([^"]*)" aria-label="Einfache Fahrt"/)?.[1]
+  assert.ok(journeySection(loadingRow))
+  assert.equal(journeySection(loadingRow),journeySection(pricedRow),'pending and priced rows share the summary grid')
+  assert.equal((loadingRow.match(/<article/g)||[]).length,1)
+  assert.equal((loadingRow.match(/<header/g)||[]).length,(pricedRow.match(/<header/g)||[]).length,'loading adds no extra status row')
+  const checkMore={...known,data:priced,onCheckMore:()=>{}}
+  const streamingWithQuote=renderToStaticMarkup(createElement(FlexpreisDayComparison,{...checkMore,isBasisLoading:true}))
+  const finishedWithQuote=renderToStaticMarkup(createElement(FlexpreisDayComparison,{...checkMore,isBasisLoading:false}))
+  const checkButton=markup=>markup.match(/<button[^>]*>Weitere Flexpreise prüfen<\/button>/)?.[0]
+  assert.ok(checkButton(streamingWithQuote),'the extra-price action is present while other days are still loading')
+  assert.match(checkButton(streamingWithQuote),/disabled=""/)
+  assert.ok(!checkButton(finishedWithQuote).includes('disabled=""'),'completion enables the existing action')
 })
 
 test('calendar and result selectors share a route with unique labels and no change action for a single route',async()=>{
