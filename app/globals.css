@@ -95,6 +95,13 @@
     scrollbar-gutter: stable;
   }
 
+  @supports (scrollbar-gutter: stable) {
+    /* The root gutter reserves the space; outrank Radix's later-injected body rule. */
+    html body[data-scroll-locked] {
+      margin-right: 0 !important;
+    }
+  }
+
   * {
     @apply border-border;
   }
