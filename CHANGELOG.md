@@ -1,5 +1,18 @@
 # Changelog
 
+## [2.4.3](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.2...v2.4.3) (2026-11-02)
+
+
+### Bug Fixes
+
+* **bahn:** restore API access with adjusted TLS group order ([c805742](https://github.com/sparpreis-guru/sparpreis.guru/commit/c805742a37fb52962d6c41275172d4b1efacac9a)), closes [#89](https://github.com/sparpreis-guru/sparpreis.guru/issues/89)
+* **bestpreissuche:** apply calendar price colors to Flexpreis offers ([a240349](https://github.com/sparpreis-guru/sparpreis.guru/commit/a24034935cb2e27ca8a6eb8b1455c3dffb7578f8))
+* **bestpreissuche:** prefer more frequent routes at equal day coverage ([096452b](https://github.com/sparpreis-guru/sparpreis.guru/commit/096452b7db9329139f8fda8b66e19210565eb108))
+* **bestpreissuche:** stabilize Flexpreis loading and calendar layout ([13a5df6](https://github.com/sparpreis-guru/sparpreis.guru/commit/13a5df657a009295afa04f9a1266f040ea1825be))
+* **bestpreissuche:** unify Flexpreis booking button labels ([1974db0](https://github.com/sparpreis-guru/sparpreis.guru/commit/1974db0d65187042e440826ccb7f2972819cd461))
+* **ui:** prevent layout shifts when opening select menus ([57191aa](https://github.com/sparpreis-guru/sparpreis.guru/commit/57191aafa0ceda6e97aee557e6db6252bb36a02e))
+* **urlaubsfinder:** simplify destination selection layout ([7d3ac90](https://github.com/sparpreis-guru/sparpreis.guru/commit/7d3ac90aa42624102d7111dbe7ac5898b5ccc268))
+
 ## [2.4.2](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.1...v2.4.2) (2026-10-23)
 
 
