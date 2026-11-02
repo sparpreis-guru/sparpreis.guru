@@ -52,7 +52,7 @@ function QuoteRow({ quote, routeLabel, comparison = false, basis, origin, destin
         inlineBookingOnMobile
         secondaryColumns={hasJourneyDetails ? 2 : 1}
         bookingActions={isPending || quote?.bookingUrl ? <JourneyBookingButtonGroup compactOnMobile>
-          <JourneyBookingButton direction="one-way" href={quote?.bookingUrl} disabled={isPending} compactOnMobile label="Bei der Bahn prüfen" mobileLabel="Prüfen" ariaLabel="Bahn-Suche öffnen und diese Verbindung prüfen" />
+          <JourneyBookingButton direction="one-way" href={quote?.bookingUrl} disabled={isPending} compactOnMobile />
         </JourneyBookingButtonGroup> : undefined}
         secondaryActions={<>
           {hasJourneyDetails && <JourneyDisclosureButton
@@ -129,7 +129,7 @@ export function FlexpreisDayComparison({ data, onCheckMore, isPending = false, i
         <dl className="grid gap-x-4 gap-y-1 border-t border-gray-200 bg-gray-50 px-4 py-3 text-xs leading-5 text-gray-600 sm:grid-cols-[8rem_minmax(0,1fr)] sm:gap-y-2">
           <dt className="font-semibold text-gray-800">Streckengültigkeit</dt>
           <dd className="mb-2 sm:mb-0">Die Zwischenhalte zeigen die geprüfte Verbindung, nicht die VIA-Angabe des Tickets. Welche anderen Strecken du damit nutzen darfst, lässt sich daraus nicht sicher ableiten.</dd>
-          <dt className="font-semibold text-gray-800">Bei der Bahn prüfen</dt>
+          <dt className="font-semibold text-gray-800">Fahrt buchen</dt>
           <dd>Der Link öffnet die Bahn-Suche zur Abfahrtszeit. Dort wählst du die Verbindung und den Flexpreis. Es gelten der dort angezeigte Preis und die Ticketbedingungen.</dd>
         </dl>
       </details>

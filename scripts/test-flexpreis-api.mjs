@@ -251,8 +251,8 @@ test('rendered extra day keeps a single bounded loader until its Flexpreis arriv
   assert.match(row,/Fahrtverlauf anzeigen/)
   assert.match(row,/Angebotsdetails anzeigen/)
   assert.match(row,/aria-controls=/)
-  assert.match(row,/Bei der Bahn prüfen/)
-  assert.match(row,/>Prüfen<\/span>/)
+  assert.match(row,/aria-label="Fahrt buchen"/)
+  assert.match(row,/>Buchen<\/span>/)
 
   const routeComparison=chooseFlexpreisComparison({[date]:[source]})
   const known={comparison:routeComparison,origin:source.route.origin.name,destination:source.route.destination.name}
