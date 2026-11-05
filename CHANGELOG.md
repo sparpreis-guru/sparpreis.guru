@@ -1,5 +1,19 @@
 # Changelog
 
+## [2.5.0](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.3...v2.5.0) (2026-11-05)
+
+
+### Features
+
+* **search:** add a temporary live-price search shutdown switch ([c1d0e73](https://github.com/sparpreis-guru/sparpreis.guru/commit/c1d0e73b44b4cb037f8f4c54f54ad86c7dce637a))
+* **security:** add optional Turnstile protection for searches ([24dce3b](https://github.com/sparpreis-guru/sparpreis.guru/commit/24dce3bc82b6a420e16956e33c348ad2ef903eb6))
+
+
+### Bug Fixes
+
+* **bahn:** use verified classical TLS key exchange groups ([0ae90a4](https://github.com/sparpreis-guru/sparpreis.guru/commit/0ae90a42b05141b1a115ba8f49338ece15e3b506))
+* **search:** guard superseded requests and bound date windows ([32fa6be](https://github.com/sparpreis-guru/sparpreis.guru/commit/32fa6be2ee8eb7919305f35e3447a4ce551124bd))
+
 ## [2.4.3](https://github.com/sparpreis-guru/sparpreis.guru/compare/v2.4.2...v2.4.3) (2026-11-02)
 
 
