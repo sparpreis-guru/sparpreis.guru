@@ -37,10 +37,7 @@ export function isTemporaryBahnNetworkError(error: unknown): boolean {
   return typeof code === "string" && TEMPORARY_NETWORK_ERROR_CODES.has(code)
 }
 
-const [opensslMajor, opensslMinor] = process.versions.openssl.split(".").map(Number)
-const bahnKeyExchangeGroups = opensslMajor > 3 || (opensslMajor === 3 && opensslMinor >= 5)
-  ? "X25519MLKEM768:X25519:P-384:P-256"
-  : "X25519:P-256:P-384"
+const bahnKeyExchangeGroups = "X25519:P-256:P-384"
 
 const bahnAgent = new Agent({
   // Undici 8 enables HTTP/2 by default. Preserve the previous HTTP/1.1-only
@@ -50,9 +47,9 @@ const bahnAgent = new Agent({
     // Some local Windows/Node setups select an unreachable Akamai IPv6 route
     // for bahn.de and never fall back to the working IPv4 addresses.
     family: 4,
-    // Akamai's OPS_BLOCKED response is sensitive to supported_groups ordering.
-    // Keep the live-verified order, including P-384 before P-256 on OpenSSL 3.5+,
-    // while retaining TLS 1.3 and hybrid key exchange (Node 24+).
+    // The previous hybrid groups now receive OPS_BLOCKED. Use the classical
+    // list verified against all four endpoints, including on OpenSSL 3.5+.
+    // TLS versions, cipher suites and certificate verification stay unchanged.
     // Reproduction and limitations: docs/bahn-api-transport.md.
     ecdhCurve: bahnKeyExchangeGroups,
   },

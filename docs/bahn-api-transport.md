@@ -33,12 +33,15 @@ Deployment muss nach Übernahme der Änderung separat geprüft werden.
 ## Gemeinsamer Client
 
 `app/api/search-prices/bahn-http.ts` verwendet explizite TLS-Gruppen statt der
-alten Begrenzung auf TLS 1.2. Auf OpenSSL 3.5 oder neuer bleibt hybrider
-Schlüsselaustausch über `X25519MLKEM768` verfügbar. Ältere Versionen verwenden
-`X25519:P-256:P-384`; die Gruppenliste wurde ebenfalls live geprüft,
-eine ältere Node-Runtime wurde dabei nicht getestet. Seit der erneuten
-Blockierung am 02.11.2026 verwendet OpenSSL 3.5+ die korrigierte Reihenfolge
-`X25519MLKEM768:X25519:P-384:P-256` (siehe Vergleich unten).
+alten Begrenzung auf TLS 1.2. Seit der erneuten Blockierung am 05.11.2026
+verwenden alle unterstützten Runtimes die klassische Liste
+`X25519:P-256:P-384`. Die zuvor auf OpenSSL 3.5+ verwendete hybride Liste
+`X25519MLKEM768:X25519:P-384:P-256` wird nicht mehr angeboten. TLS 1.3 bleibt
+möglich; TLS-Versionen, Cipher-Suites und Zertifikatsprüfung bleiben
+unverändert. Der hybride Postquanten-Schlüsselaustausch entfällt bei diesem
+auf Bahn-Abfragen begrenzten Client. Eine ältere Node-Runtime wurde dabei
+nicht live getestet. Die früheren Konfigurationen und Vergleichsergebnisse
+sind unten als Verlauf dokumentiert.
 
 Die Konfiguration gilt nur für den auf `https://www.bahn.de` beschränkten
 Client, den Bahnhofssuche, Tagesbestpreis, Fahrplan und Rekonstruktion gemeinsam
@@ -46,7 +49,7 @@ verwenden. Rate-Limits, Wiederholungsregeln, Cache und Datenbankformat werden
 dadurch nicht verändert. Eine neue Blockierung darf nicht durch unbeschränkte
 Wiederholungen beantwortet werden.
 
-Die anschließend direkt importierte korrigierte `fetchBahn`-Funktion wurde
+Die nach der Korrektur vom 23.10.2026 direkt importierte `fetchBahn`-Funktion wurde
 mit allen vier verwendeten Endpunkten geprüft: `tagesbestpreis` lieferte
 201 mit sechs Intervallen, `orte` 200 mit drei Bahnhofstreffern, `fahrplan`
 201 mit fünf Verbindungen und `recon` 201 mit der rekonstruierten Verbindung.
@@ -95,6 +98,52 @@ importiert und mit vier echten Abfragen geprüft: `tagesbestpreis` lieferte
 fünf Verbindungen und `recon` 201 mit einer rekonstruierten Verbindung.
 Diese Prüfung erfolgte lokal unter Windows mit der oben genannten Runtime;
 ein Linux-/Container- oder Deployment-Test wurde dabei nicht durchgeführt.
+
+## Klassische Gruppen nach erneuter Blockierung am 05.11.2026
+
+Ein kontrollierter lokaler Vergleich unter Windows mit Node 24.18.0,
+OpenSSL 3.5.7 und Undici 8.12.3 bestätigte die erneute Blockierung der
+hybriden Liste aus Version 2.4.3. Der Vergleich importierte den gemeinsamen
+Client mit zwei isolierten Agent-Instanzen. Nur die Gruppenliste wurde für
+die klassische Variante geändert. Beide Varianten verwendeten dieselbe
+einmalig aufgelöste Akamai-IPv4-Adresse `95.100.110.26`, identische Header und
+für den Preisvergleich denselben serialisierten POST-Body. Die IPv4-Adresse
+war ausschließlich im Test festgehalten und wird nicht im Runtime-Client
+hinterlegt. Die insgesamt neun Anfragen wurden im Abstand von mindestens
+drei Sekunden gestartet; Bestätigungs- und Kontrollabfragen sind darin
+enthalten.
+
+Geprüft wurde Berlin Hbf nach München Hbf am 19.11.2026, zweite Klasse,
+ein Erwachsener ohne BahnCard. Erfolg erforderte passende API-JSON-Inhalte,
+nicht nur einen HTTP-2xx-Status.
+
+| Abfrage | Hybride Liste aus v2.4.3 | Klassische Liste `X25519:P-256:P-384` |
+| --- | --- | --- |
+| Bahnhofssuche Berlin | 403 OPS_BLOCKED, vor und nach dem Vergleich | 200, Bahnhofstreffer |
+| Bahnhofssuche München | nicht separat geprüft | 200, Bahnhofstreffer |
+| Tagesbestpreis | 403 OPS_BLOCKED | 201, sechs bepreiste Intervalle; Wiederholung ebenfalls 201 |
+| Fahrplan | nicht separat geprüft | 201, fünf Verbindungen |
+| Rekonstruktion | nicht separat geprüft | 201, eine rekonstruierte Verbindung mit zwölf Angeboten |
+
+Daraufhin wurde die klassische Liste als einzige Gruppenliste in den
+gemeinsamen Client übernommen. Der bisherige versionsabhängige Zweig
+entfällt. HTTP/1.1, IPv4, Cipher-Suites, TLS-Versionsgrenzen, Zertifikatsprüfung,
+Rate-Limits, Cache und Wiederholungsregeln bleiben unverändert. Es wird keine
+automatische Rotation zwischen TLS-Profilen ergänzt.
+
+Die anschließend erneut direkt importierte tatsächliche `fetchBahn`-Funktion
+wurde mit normaler DNS-Auflösung und fünf weiteren Anfragen auf allen vier
+Endpunkten erfolgreich geprüft: Bahnhofssuche Berlin und München jeweils
+200 mit Bahnhofstreffern, Tagesbestpreis 201 mit sechs bepreisten Intervallen,
+Fahrplan 201 mit fünf Verbindungen und Rekonstruktion 201 mit einer
+Verbindung und zwölf Angeboten. Die Testinstrumentierung ergänzte nur eine
+Möglichkeit zum Schließen des Agenten nach dem Test; die Runtime-Konfiguration
+blieb unverändert.
+Der kontrollierte Vergleich belegt einen Einfluss der geänderten
+TLS-Konfiguration in dieser lokalen Umgebung, keine konkrete Akamai-Regel
+und keine dauerhafte Freigabe. Linux-/Container- und Deployment-Zugriffe
+müssen separat geprüft werden. Die konfigurierbare Deployment-Sperre
+`DISABLE_PRICE_SEARCH` wird durch diese Transportänderung nicht aufgehoben.
 
 ## Quellen
 
