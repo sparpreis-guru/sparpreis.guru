@@ -64,6 +64,7 @@ interface PriceResults {
 
 interface ClassicFinderProps {
   searchParams: SearchParams
+  searchDisabled?: boolean
 }
 
 const weekdays = [
@@ -239,7 +240,7 @@ function discountLabel(art: string) {
   return "keine BC"
 }
 
-export function ClassicFinder({ searchParams }: ClassicFinderProps) {
+export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicFinderProps) {
   const [origin, setOrigin] = useState(isStationId(searchParams.start) ? "" : searchParams.start || "")
   const [originId, setOriginId] = useState(isStationId(searchParams.start) ? searchParams.start || "" : "")
   const [destination, setDestination] = useState(isStationId(searchParams.ziel) ? "" : searchParams.ziel || "")
@@ -284,7 +285,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
   const searchFailures = getSearchFailures(entries.map(([, value]) => value))
   const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : 0
   const completedDays = entries.length
-  const hasSearch = Boolean(searchParams.start && searchParams.ziel)
+  const hasSearch = Boolean(!searchDisabled && searchParams.start && searchParams.ziel)
 
   const notifyActiveSearchCancellation = useCallback((reason: string) => {
     const sessionId = sessionIdRef.current
@@ -402,7 +403,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
   })
 
   useEffect(() => {
-    if (!searchParams.start || !searchParams.ziel) return
+    if (searchDisabled || !searchParams.start || !searchParams.ziel) return
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -507,7 +508,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
       notifyActiveSearchCancellation("search_effect_cleanup")
       controller.abort()
     }
-  }, [currentSearchKey, notifyActiveSearchCancellation, searchParams])
+  }, [currentSearchKey, notifyActiveSearchCancellation, searchParams, searchDisabled])
 
   const handleOriginChange = (value: string) => {
     setOrigin(value)
@@ -553,6 +554,7 @@ export function ClassicFinder({ searchParams }: ClassicFinderProps) {
     if (normalizedDepartureAfter) params.set("abfahrtAb", normalizedDepartureAfter)
     if (normalizedArrivalBefore) params.set("ankunftBis", normalizedArrivalBefore)
     if (maxChanges.trim()) params.set("maximaleUmstiege", maxChanges.trim())
+    if (searchDisabled) return
     window.location.assign(`/klassik?${params.toString()}`)
   }
 

@@ -59,6 +59,7 @@ pnpm build:direct-connections
 | --- | --- | --- |
 | `NEXT_PUBLIC_BASE_URL` | – | Öffentliche URL der Installation |
 | `ENABLE_URLAUBSFINDER` | `true` | Blendet mit `false` den Urlaubsfinder aus und deaktiviert seine API |
+| `DISABLE_PRICE_SEARCH` | `false` | Sperrt mit `true`, `1` oder `yes` Bestpreissuche (einschließlich Klassikmodus und Flexpreisvergleich) sowie Urlaubsfinder mit einem Hinweis auf die Akamai-Blockierung und das GitHub-Repository zum Selbsthosten; Direktverbindungen bleiben nutzbar |
 | `SHOW_FOOTER` | `false` | Zeigt mit `true`, `1` oder `yes` den Demo- und Kontakt-Footer |
 | `DATABASE_PATH` | `data/connection-cache.db` | Abweichender Pfad für Cache und Preisverlauf |
 | `CLEANUP_PAST_CONNECTIONS` | `true` | Entfernt regelmäßig abgelaufene Verbindungen aus dem Cache |
@@ -67,6 +68,8 @@ pnpm build:direct-connections
 | `LOG_LEVEL` | – | Aktiviert mit `debug` zusätzliche strukturierte Logs |
 
 `tagesbestpreis` und `recon` werden in getrennten Rate-Limitern verarbeitet. Die vorhandenen `RL_*`-Variablen konfigurieren den Tagesbestpreis-Limiter; für `recon` können dieselben Suffixe mit `RECON_RL_*` separat gesetzt werden, beispielsweise `RECON_RL_ROLLING_LIMIT_COUNT`. Ohne eigenen Wert übernimmt der recon-Limiter die entsprechende `RL_*`-Einstellung. Standardmäßig gelten für beide Budgets jeweils 30 Starts pro 60 Sekunden.
+
+Zur temporären Sperre `DISABLE_PRICE_SEARCH=true` in der Serverumgebung setzen und die Anwendung neu starten. Bei Docker genügt `-e DISABLE_PRICE_SEARCH=true`; das Image muss nicht neu gebaut werden. Ohne die Variable oder mit `false` sind Preisabfragen wieder freigegeben. `ENABLE_URLAUBSFINDER=false` blendet den Urlaubsfinder unabhängig davon weiterhin vollständig aus. Die gesperrten Preis-APIs antworten mit HTTP 503 und `code: "PRICE_SEARCH_DISABLED"`, bevor Suchanfragen verarbeitet werden.
 
 ## Monitoring
 

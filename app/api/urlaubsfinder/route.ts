@@ -1,3 +1,4 @@
+import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { type NextRequest, NextResponse } from "next/server"
 import { getBestPrice, searchBahnhof } from '@/app/api/search-prices/bahn-api'
 import { globalRateLimiter } from '@/app/api/search-prices/rate-limiter'
@@ -159,6 +160,9 @@ export async function POST(request: NextRequest) {
   if (!isUrlaubsfinderEnabled()) {
     return NextResponse.json({ error: 'Urlaubsfinder is disabled' }, { status: 404 })
   }
+
+  const unavailable = getPriceSearchUnavailableResponse()
+  if (unavailable) return unavailable
 
   try {
     const body: UrlauberfinderRequest = await request.json()

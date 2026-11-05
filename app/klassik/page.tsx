@@ -1,7 +1,11 @@
+import { isPriceSearchDisabled } from "@/lib/shared/feature-flags"
+import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { ClassicFinder } from "@/components/bestpreissuche/classic-finder"
 import "./klassik.css"
+
+export const dynamic = "force-dynamic"
 
 interface SearchParams {
   start?: string
@@ -49,9 +53,10 @@ export default async function KlassikPage({
 }: {
   searchParams: Promise<SearchParams>
 }) {
+  const priceSearchDisabled = isPriceSearchDisabled()
   const params = await searchParams
 
-  if (params.start && params.ziel) {
+  if (!priceSearchDisabled && params.start && params.ziel) {
     const tomorrow = getTomorrowISO()
     const correctedParams = new URLSearchParams()
     let needsRedirect = false
@@ -82,7 +87,7 @@ export default async function KlassikPage({
     }
   }
 
-  return (
+  const page = (
     <>
       <style>{`
         html {
@@ -96,7 +101,9 @@ export default async function KlassikPage({
           color: #333;
         }
       `}</style>
-      <ClassicFinder searchParams={params} />
+      <ClassicFinder searchParams={params} searchDisabled={priceSearchDisabled} />
     </>
   )
+
+  return priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page
 }

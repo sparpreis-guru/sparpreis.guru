@@ -1,3 +1,4 @@
+import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
 import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { Footer } from "@/components/layout/footer"
@@ -5,7 +6,7 @@ import { BrandLogo } from "@/components/layout/brand-logo"
 import { FAQPopup } from "@/components/layout/faq-popup"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { PageContainer } from "@/components/layout/page-container"
-import { isFooterEnabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
+import { isFooterEnabled, isPriceSearchDisabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
 import {
   getEligibleDateKeys,
   getReturnSearchFeasibility,
@@ -13,6 +14,8 @@ import {
 } from "@/lib/search/return-search-feasibility"
 import { redirect } from "next/navigation"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
+
+export const dynamic = "force-dynamic"
 
 interface SearchParams {
   start?: string
@@ -61,10 +64,11 @@ export default async function Page({
 }: {
   searchParams: Promise<SearchParams>
 }) {
+  const priceSearchDisabled = isPriceSearchDisabled()
   const params = await searchParams
   
   // Validate and correct dates if they're in the past
-  if (params.start && params.ziel) {
+  if (!priceSearchDisabled && params.start && params.ziel) {
     const tomorrow = getEarliestSearchDateKey()
     const defaultSearchStart = addDaysToDateKey(tomorrow, 6)
     let needsRedirect = false
@@ -122,12 +126,12 @@ export default async function Page({
       maxNights: maximumNights,
     }).hasCombination
   })()
-  const hasSearch = Boolean(params.start && params.ziel && returnSearchIsFeasible)
+  const hasSearch = Boolean(!priceSearchDisabled && params.start && params.ziel && returnSearchIsFeasible)
   const urlaubsfinderEnabled = isUrlaubsfinderEnabled()
   const footerEnabled = isFooterEnabled()
   const classicModeHref = createClassicModeHref(params)
 
-  return (
+  const page = (
     <div className="min-h-screen bg-white">
       <PageContainer>
         <header className="mb-6 px-3 sm:px-0">
@@ -162,4 +166,6 @@ export default async function Page({
       </PageContainer>
     </div>
   )
+
+  return priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page
 }

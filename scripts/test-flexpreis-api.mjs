@@ -692,3 +692,65 @@ test('ordinary prices stay visible during Flexpreis lookup; terminal and cancell
   assert.equal(getCalendarDayLoadingPhase({...received,isExpectedDay:false}),null)
   assert.equal(getCalendarDayLoadingPhase({...received,hasResult:false,isStreaming:false}),null)
 })
+
+test('deployment price-search switch blocks every price API before reading the body and can be lifted without reimporting',async()=>{
+  const {POST: holiday}=await import('../app/api/urlaubsfinder/route.ts')
+  const {isPriceSearchDisabled}=await import('../lib/shared/feature-flags.ts')
+  const {getPriceSearchUnavailableResponse}=await import('../lib/search/price-search-availability.ts')
+  const previousDisabled=process.env.DISABLE_PRICE_SEARCH
+  const previousHoliday=process.env.ENABLE_URLAUBSFINDER
+  const before={...calls},beforeProgress=progress.length
+  try {
+    process.env.ENABLE_URLAUBSFINDER='true'
+    for(const value of [undefined,'false','0','no','']) {
+      if(value===undefined) delete process.env.DISABLE_PRICE_SEARCH
+      else process.env.DISABLE_PRICE_SEARCH=value
+      assert.equal(isPriceSearchDisabled(),false)
+      assert.equal(getPriceSearchUnavailableResponse(),null)
+    }
+    for(const value of ['true','1','yes',' TRUE ']) {
+      process.env.DISABLE_PRICE_SEARCH=value
+      assert.equal(isPriceSearchDisabled(),true)
+      for(const [handler,path] of [[month,'/api/search-prices'],[day,'/api/flexpreis/day'],[holiday,'/api/urlaubsfinder']]) {
+        const request=new NextRequest('http://localhost:3000'+path,{method:'POST',body:'invalid JSON'})
+        const result=await handler(request)
+        assert.equal(result.status,503)
+        assert.equal(result.headers.get('cache-control'),'no-store')
+        const payload=await result.json()
+        assert.equal(payload.code,'PRICE_SEARCH_DISABLED')
+        assert.match(payload.error,/Akamai/)
+        assert.equal(payload.repositoryUrl,'https://github.com/sparpreis-guru/sparpreis.guru')
+        assert.equal(request.bodyUsed,false,'disabled requests must not start processing')
+      }
+    }
+    process.env.ENABLE_URLAUBSFINDER='false'
+    assert.equal((await holiday(req({},'/api/urlaubsfinder'))).status,404,'the existing hide switch takes precedence')
+    process.env.DISABLE_PRICE_SEARCH='false'
+    assert.equal((await day(req({},'/api/flexpreis/day'))).status,400,'lifting the switch restores regular validation')
+    assert.deepEqual(calls,before,'disabled requests must not contact Bahn')
+    assert.equal(progress.length,beforeProgress,'disabled requests must not register search work')
+  } finally {
+    if(previousDisabled===undefined) delete process.env.DISABLE_PRICE_SEARCH
+    else process.env.DISABLE_PRICE_SEARCH=previousDisabled
+    if(previousHoliday===undefined) delete process.env.ENABLE_URLAUBSFINDER
+    else process.env.ENABLE_URLAUBSFINDER=previousHoliday
+  }
+})
+
+test('disabled search overlay explains the block and keeps the underlying page inert',async()=>{
+  const {PriceSearchUnavailablePage}=await import('../components/search/price-search-unavailable-page.tsx')
+  for(const label of ['Bestpreissuche','Klassik','Urlaubsfinder']) {
+    const background=createElement('form',null,createElement('button',null,label))
+    const html=renderToStaticMarkup(createElement(PriceSearchUnavailablePage,null,background))
+    assert.match(html,/Preisabfragen machen gerade Pause/)
+    assert.match(html,/Akamai/)
+    assert.match(html,/href="https:\/\/github.com\/sparpreis-guru\/sparpreis\.guru"/)
+    assert.match(html,/selbst hosten/)
+    assert.match(html,/href="\/direktverbindungen"/)
+    assert.match(html,/<div inert="" aria-hidden="true"[^>]*><form>/)
+    assert.match(html,/role="dialog"/)
+    assert.match(html,/aria-modal="true"/)
+    assert.match(html,/backdrop-blur-sm/)
+    assert.match(html,new RegExp(label))
+  }
+})

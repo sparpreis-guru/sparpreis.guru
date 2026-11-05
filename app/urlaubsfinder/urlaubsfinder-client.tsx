@@ -159,9 +159,10 @@ function parseUrlaubsfinderQuery(searchParams: QueryLike): Partial<Urlauberfinde
 
 interface UrlauberfinderPageProps {
   showFooter?: boolean
+  searchDisabled?: boolean
 }
 
-export default function UrlauberfinderPage({ showFooter = false }: UrlauberfinderPageProps) {
+export default function UrlauberfinderPage({ showFooter = false, searchDisabled = false }: UrlauberfinderPageProps) {
   const router = useRouter()
   const pathname = usePathname()
 
@@ -203,6 +204,8 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
   }, [])
 
   const handleSearch = async (params: UrlauberfinderSearchParams) => {
+    if (searchDisabled) return
+
     const previousController = abortControllerRef.current
     const searchRunId = searchRunIdRef.current + 1
     searchRunIdRef.current = searchRunId
@@ -458,7 +461,7 @@ export default function UrlauberfinderPage({ showFooter = false }: Urlauberfinde
             onSearch={handleSearch}
             isSearching={isLoading}
             initialParams={initialFormParams}
-            autoStartFromInitialParams
+            autoStartFromInitialParams={!searchDisabled}
           />
         </section>
 

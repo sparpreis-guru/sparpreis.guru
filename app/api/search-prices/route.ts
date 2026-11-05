@@ -1,3 +1,4 @@
+import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { type NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter, reconRateLimiter } from './rate-limiter'
 import { searchBahnhof, getBestPrice } from './bahn-api'
@@ -246,6 +247,9 @@ function buildTravelCombinations(
 }
 
 export async function POST(request: NextRequest) {
+  const unavailable = getPriceSearchUnavailableResponse()
+  if (unavailable) return unavailable
+
   // Track search start time for metrics
   const searchStartTime = Date.now()
   

@@ -1,3 +1,4 @@
+import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { NextRequest, NextResponse } from "next/server"
 import { getBestPrice, searchBahnhof } from "@/app/api/search-prices/bahn-api"
 import { resolveFlexpreisDay, supplementFlexpreisSources, type FlexpreisRequestConfig } from "@/app/api/search-prices/flexpreis"
@@ -9,6 +10,9 @@ export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
 
 export async function POST(request: NextRequest) {
+  const unavailable = getPriceSearchUnavailableResponse()
+  if (unavailable) return unavailable
+
   let sessionId: string | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
   const abort = () => { if (sessionId) cancelBestpreisSearchSession(sessionId, "user_request") }

@@ -1,3 +1,8 @@
+export function isPriceSearchDisabled(): boolean {
+  const value = process.env.DISABLE_PRICE_SEARCH?.trim().toLowerCase()
+  return value === "true" || value === "1" || value === "yes"
+}
+
 export function isUrlaubsfinderEnabled(): boolean {
   return process.env.ENABLE_URLAUBSFINDER?.toLowerCase() !== "false"
 }
