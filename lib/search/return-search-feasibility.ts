@@ -1,4 +1,7 @@
 const MILLISECONDS_PER_DAY = 24 * 60 * 60 * 1000
+// Even 30 selected dates with only one weekday fit into this window.
+// Bound untrusted URLs before enumerating dates or comparing date pairs.
+const MAX_SEARCH_WINDOW_DAYS = 366
 
 export const ALL_SEARCH_WEEKDAYS = [1, 2, 3, 4, 5, 6, 0]
 
@@ -31,13 +34,13 @@ function parseDateKey(value: string) {
   if (!match) return null
 
   const timestamp = Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3]))
-  return Number.isFinite(timestamp) ? timestamp : null
+  return Number.isFinite(timestamp) && new Date(timestamp).toISOString().slice(0, 10) === value ? timestamp : null
 }
 
 export function getEligibleDateKeys(from: string, to: string, weekdays: number[]) {
   const start = parseDateKey(from)
   const end = parseDateKey(to)
-  if (start === null || end === null || end < start) return []
+  if (start === null || end === null || end < start || end - start >= MAX_SEARCH_WINDOW_DAYS * MILLISECONDS_PER_DAY) return []
 
   const selectedWeekdays = new Set(weekdays)
   const dates: string[] = []

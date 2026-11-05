@@ -617,6 +617,24 @@ test('Turnstile stays absent when disabled and enabled pages disclose the servic
   assert.doesNotMatch(enabled,/challenges\.cloudflare\.com|<script/,'the widget script is loaded only on an actual search attempt')
 })
 
+test('shared date enumeration rejects impossible or oversized windows without changing valid 30-day searches',async()=>{
+  const {getEligibleDateKeys,getReturnSearchFeasibility}=await import('../lib/search/return-search-feasibility.ts')
+  assert.deepEqual(getEligibleDateKeys('2027-01-01','9999-12-31',[1]),[])
+  assert.deepEqual(getEligibleDateKeys('2027-02-30','2027-03-04',[1,2,3,4,5,6,0]),[])
+  const mondays=getEligibleDateKeys('2027-01-04','2027-07-26',[1])
+  assert.equal(mondays.length,30)
+  assert.equal(getReturnSearchFeasibility({outwardDates:mondays,returnDates:mondays,minNights:7}).hasCombination,true)
+  assert.equal(getEligibleDateKeys('2028-01-01','2028-12-31',[1,2,3,4,5,6,0]).length,366)
+  assert.deepEqual(getEligibleDateKeys('2028-01-01','2029-01-01',[1]),[])
+  const before={...calls},beforeStations=stationRequests,previousEnabled=process.env.TURNSTILE_ENABLED
+  try {
+    process.env.TURNSTILE_ENABLED='false'
+    const rejected=await month(req({...defaults,reisezeitraumBis:'9999-12-31',rueckfahrt:'1'}))
+    assert.equal(rejected.status,400,'the actual route rejects enormous windows before pairwise return-date evaluation')
+    assert.deepEqual(calls,before)
+    assert.equal(stationRequests,beforeStations)
+  } finally {if(previousEnabled===undefined) delete process.env.TURNSTILE_ENABLED;else process.env.TURNSTILE_ENABLED=previousEnabled}
+})
 
 test('one-way calendar includes the route and price summary before the first API metadata or prices arrive',async()=>{
   const {PriceCalendar}=await import('../components/bestpreissuche/price-calendar.tsx')

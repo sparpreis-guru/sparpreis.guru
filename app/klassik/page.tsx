@@ -5,6 +5,7 @@ import { isPriceSearchDisabled } from "@/lib/shared/feature-flags"
 import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
 import { PriceSearchSecurity } from "@/components/search/price-search-security"
 import { canonicalSearchQuery } from "@/lib/search/search-submission"
+import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 import "./klassik.css"
 
 export const dynamic = "force-dynamic"
@@ -30,26 +31,6 @@ export const metadata: Metadata = {
   description: "Der klassische Preiskalender im Look von bahn.guru.",
 }
 
-function formatDateKey(date: Date) {
-  const year = date.getFullYear()
-  const month = `${date.getMonth() + 1}`.padStart(2, "0")
-  const day = `${date.getDate()}`.padStart(2, "0")
-  return `${year}-${month}-${day}`
-}
-
-function getTomorrowISO() {
-  const tomorrow = new Date()
-  tomorrow.setDate(tomorrow.getDate() + 1)
-  return formatDateKey(tomorrow)
-}
-
-function addDays(dateKey: string, days: number) {
-  const [year, month, day] = dateKey.split("-").map(Number)
-  const date = new Date(year, month - 1, day)
-  date.setDate(date.getDate() + days)
-  return formatDateKey(date)
-}
-
 export default async function KlassikPage({
   searchParams,
 }: {
@@ -59,7 +40,7 @@ export default async function KlassikPage({
   const params = await searchParams
 
   if (!priceSearchDisabled && params.start && params.ziel) {
-    const tomorrow = getTomorrowISO()
+    const tomorrow = getEarliestSearchDateKey()
     const correctedParams = new URLSearchParams()
     let needsRedirect = false
 
@@ -77,10 +58,10 @@ export default async function KlassikPage({
 
     const effectiveStart = correctedParams.get("reisezeitraumAb") || tomorrow
     if (!params.reisezeitraumBis) {
-      correctedParams.set("reisezeitraumBis", addDays(effectiveStart, 6))
+      correctedParams.set("reisezeitraumBis", addDaysToDateKey(effectiveStart, 6))
       needsRedirect = true
     } else if (params.reisezeitraumBis < effectiveStart) {
-      correctedParams.set("reisezeitraumBis", addDays(effectiveStart, 6))
+      correctedParams.set("reisezeitraumBis", addDaysToDateKey(effectiveStart, 6))
       needsRedirect = true
     }
 

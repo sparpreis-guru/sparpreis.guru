@@ -8,6 +8,7 @@ import { PriceSearchVerificationStatus, usePriceSearchFetch, usePriceSearchVerif
 import { useSearchSubmission } from "@/components/search/search-submission-provider"
 import { matchesSubmittedSearch } from "@/lib/search/search-submission"
 import { useRouter } from "next/navigation"
+import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 
 interface SearchParams {
   start?: string
@@ -95,15 +96,11 @@ function formatDateKey(date: Date) {
 }
 
 function getTomorrowISO() {
-  const date = new Date()
-  date.setDate(date.getDate() + 1)
-  return formatDateKey(date)
+  return getEarliestSearchDateKey()
 }
 
 function addDays(dateKey: string, days: number) {
-  const date = parseDate(dateKey)
-  date.setDate(date.getDate() + days)
-  return formatDateKey(date)
+  return addDaysToDateKey(dateKey, days)
 }
 
 function parseDate(dateKey: string) {
@@ -469,6 +466,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
             umstiegszeit: searchParams.umstiegszeit,
           }),
         })
+        if (controller.signal.aborted || abortRef.current !== controller) return
 
         if (!response.ok) {
           const data = await response.json().catch(() => ({ error: "Bestpreissuche fehlgeschlagen." }))
@@ -480,6 +478,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
 
         if (!reader) {
           const data = await response.json()
+          if (controller.signal.aborted || abortRef.current !== controller) return
           setPriceResults(data.results || data)
           return
         }
@@ -487,6 +486,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
         let buffer = ""
         while (true) {
           const { done, value } = await reader.read()
+          if (controller.signal.aborted || abortRef.current !== controller) return
           if (done) break
           buffer += decoder.decode(value, { stream: true })
           const lines = buffer.split("\n")
@@ -512,13 +512,17 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
           }
         }
       } catch (searchError) {
+        if (controller.signal.aborted || abortRef.current !== controller) return
         if (searchError instanceof Error && searchError.name === "AbortError") return
         setError(searchError instanceof Error ? searchError.message : "Bestpreissuche fehlgeschlagen.")
       } finally {
-        setLoading(false)
-        setIsStreaming(false)
-        searchActiveRef.current = false
-        sessionIdRef.current = null
+        if (abortRef.current === controller) {
+          setLoading(false)
+          setIsStreaming(false)
+          searchActiveRef.current = false
+          sessionIdRef.current = null
+          abortRef.current = null
+        }
       }
     }
 
@@ -527,6 +531,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
     return () => {
       notifyActiveSearchCancellation("search_effect_cleanup")
       controller.abort()
+      if (abortRef.current === controller) abortRef.current = null
     }
   }, [currentSearchKey, notifyActiveSearchCancellation, priceSearchFetch, searchDisabled, userRequestedSearch, submission.attempt])
 

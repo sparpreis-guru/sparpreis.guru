@@ -36,6 +36,14 @@ gesperrt und antworten mit HTTP 503; dasselbe gilt für geschützte Stationsabru
 
 ## Ablauf und Umfang
 
+Unmögliche Kalenderdaten und Zeitfenster mit mehr als 366 Kalendertagen
+werden vor der Datumsermittlung abgewiesen. Diese technische Obergrenze
+liegt oberhalb jedes zulässigen Fensters mit höchstens 30 ausgewählten
+Reisetagen, auch wenn nur ein Wochentag gewählt ist. So können manipulierte
+Direktlinks keine millionenlangen Datumslisten und paarweisen Vergleiche
+auslösen. Im Klassikmodus richten sich die Datumsgrenzen ebenfalls nach
+den gemeinsamen Helfern für `Europe/Berlin`.
+
 - Direktlinks befüllen nur das Formular. Bestpreissuche, Klassikmodus und
   Urlaubsfinder starten erst nach einem ausdrücklichen Klick auf Suchen.
   Auch ein Neuladen oder die Browser-Zurücknavigation startet keine Preisabfrage.
