@@ -1,4 +1,3 @@
-import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
 import { TrainSearchForm } from "@/components/bestpreissuche/train-search-form"
 import { TrainResults } from "@/components/bestpreissuche/train-results"
 import { Footer } from "@/components/layout/footer"
@@ -7,6 +6,8 @@ import { FAQPopup } from "@/components/layout/faq-popup"
 import { MainNavigation } from "@/components/layout/main-navigation"
 import { PageContainer } from "@/components/layout/page-container"
 import { isFooterEnabled, isPriceSearchDisabled, isUrlaubsfinderEnabled } from "@/lib/shared/feature-flags"
+import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
+import { PriceSearchSecurity } from "@/components/search/price-search-security"
 import {
   getEligibleDateKeys,
   getReturnSearchFeasibility,
@@ -155,11 +156,9 @@ export default async function Page({
           <TrainSearchForm searchParams={params} classicModeHref={classicModeHref} />
         </section>
 
-          <section className="mb-8">
-            {hasSearch ? (
-                <TrainResults searchParams={params} />
-            ) : <></>}
-          </section>
+        <section className="mb-8">
+          {hasSearch && <TrainResults searchParams={params} />}
+        </section>
         
         {/* Footer */}
         <Footer show={footerEnabled} />
@@ -167,5 +166,5 @@ export default async function Page({
     </div>
   )
 
-  return priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page
+  return <PriceSearchSecurity>{priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page}</PriceSearchSecurity>
 }

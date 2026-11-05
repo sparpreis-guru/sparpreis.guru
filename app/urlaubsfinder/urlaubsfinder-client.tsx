@@ -14,6 +14,7 @@ import { PageContainer } from '@/components/layout/page-container'
 import { ICE_STATIONS } from '@/lib/stations/ice-stations'
 import { logError, logWarn } from '@/lib/shared/logger'
 import { describeSearchFailure, type SearchFailure } from '@/lib/search/search-errors'
+import { usePriceSearchFetch } from '@/components/search/price-search-provider'
 
 const LOG_SCOPE = "urlaubsfinder.client"
 const BACKGROUND_SEARCH_NOTICE = 'Suchen können nicht im Hintergrund ausgeführt werden, um zu viele Anfragen an die Bahn-API zu vermeiden.'
@@ -163,6 +164,7 @@ interface UrlauberfinderPageProps {
 }
 
 export default function UrlauberfinderPage({ showFooter = false, searchDisabled = false }: UrlauberfinderPageProps) {
+  const priceSearchFetch = usePriceSearchFetch()
   const router = useRouter()
   const pathname = usePathname()
 
@@ -250,7 +252,7 @@ export default function UrlauberfinderPage({ showFooter = false, searchDisabled 
         setHomeCoords(undefined)
       }
 
-      const response = await fetch('/api/urlaubsfinder', {
+      const response = await priceSearchFetch('/api/urlaubsfinder', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -461,7 +463,6 @@ export default function UrlauberfinderPage({ showFooter = false, searchDisabled 
             onSearch={handleSearch}
             isSearching={isLoading}
             initialParams={initialFormParams}
-            autoStartFromInitialParams={!searchDisabled}
           />
         </section>
 

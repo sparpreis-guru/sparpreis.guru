@@ -4,6 +4,10 @@ import type { FormEvent } from "react"
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createBookingLink } from "@/lib/train-search/day-details-utils"
 import { getSearchFailures } from "@/lib/search/search-errors"
+import { PriceSearchVerificationStatus, usePriceSearchFetch, usePriceSearchVerification, useStationSearchFetch } from "@/components/search/price-search-provider"
+import { useSearchSubmission } from "@/components/search/search-submission-provider"
+import { matchesSubmittedSearch } from "@/lib/search/search-submission"
+import { useRouter } from "next/navigation"
 
 interface SearchParams {
   start?: string
@@ -241,6 +245,12 @@ function discountLabel(art: string) {
 }
 
 export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicFinderProps) {
+  const router = useRouter()
+  const submission = useSearchSubmission()
+  const userRequestedSearch = matchesSubmittedSearch(submission.query, searchParams)
+  const priceSearchFetch = usePriceSearchFetch()
+  const stationSearchFetch = useStationSearchFetch()
+  const { isVerifying } = usePriceSearchVerification()
   const [origin, setOrigin] = useState(isStationId(searchParams.start) ? "" : searchParams.start || "")
   const [originId, setOriginId] = useState(isStationId(searchParams.start) ? searchParams.start || "" : "")
   const [destination, setDestination] = useState(isStationId(searchParams.ziel) ? "" : searchParams.ziel || "")
@@ -285,7 +295,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
   const searchFailures = getSearchFailures(entries.map(([, value]) => value))
   const minPrice = positivePrices.length > 0 ? Math.min(...positivePrices) : 0
   const completedDays = entries.length
-  const hasSearch = Boolean(!searchDisabled && searchParams.start && searchParams.ziel)
+  const hasSearch = Boolean(!searchDisabled && userRequestedSearch && searchParams.start && searchParams.ziel)
 
   const notifyActiveSearchCancellation = useCallback((reason: string) => {
     const sessionId = sessionIdRef.current
@@ -310,6 +320,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
 
   const fetchStationSuggestions = useCallback(async (query: string, target: "origin" | "destination") => {
     if (query.trim().length < 2) {
+      void stationSearchFetch(query, target)
       if (target === "origin") {
         setOriginSuggestions([])
         setShowOriginSuggestions(false)
@@ -321,7 +332,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
     }
 
     try {
-      const response = await fetch(`/api/station-search?q=${encodeURIComponent(query.trim())}`)
+      const response = await stationSearchFetch(query.trim(), target)
       if (!response.ok) throw new Error("Bahnhofssuche fehlgeschlagen.")
       const data = (await response.json()) as { results?: StationSuggestion[] }
       if (target === "origin") {
@@ -334,6 +345,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
         setDestinationError("")
       }
     } catch (stationError) {
+      if (stationError instanceof Error && stationError.name === "AbortError") return
       const message = stationError instanceof Error ? stationError.message : "Bahnhofssuche fehlgeschlagen."
       if (target === "origin") {
         setOriginError(message)
@@ -341,11 +353,12 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
         setDestinationError(message)
       }
     }
-  }, [])
+  }, [stationSearchFetch])
 
   const resolveStationId = useCallback(async (stationId: string, target: "origin" | "destination") => {
     try {
-      const response = await fetch(`/api/station-search?q=${encodeURIComponent(stationId)}`)
+      const response = await stationSearchFetch(stationId, target)
+      if (!response.ok) throw new Error("Die Bahnhofsnamen konnten nicht geladen werden. Bitte versuche es erneut.")
       const data = (await response.json()) as { results?: StationSuggestion[] }
       const station = data.results?.find((result) => result.extId === stationId) || data.results?.[0]
       if (!station) return
@@ -354,8 +367,13 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
       } else {
         setDestination(station.name)
       }
-    } catch {}
-  }, [])
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") return
+      const message = error instanceof Error ? error.message : "Bahnhofssuche fehlgeschlagen."
+      if (target === "origin") { setOrigin(stationId); setOriginError(message) }
+      else { setDestination(stationId); setDestinationError(message) }
+    }
+  }, [stationSearchFetch])
 
   useEffect(() => {
     if (originId && !origin.trim()) {
@@ -395,15 +413,17 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
     reisezeitraumBis: searchParams.reisezeitraumBis,
     alter: searchParams.alter,
     ermaessigungArt: searchParams.ermaessigungArt,
+    ermaessigungKlasse: searchParams.ermaessigungKlasse,
     klasse: searchParams.klasse,
     schnelleVerbindungen: searchParams.schnelleVerbindungen,
     maximaleUmstiege: searchParams.maximaleUmstiege,
     abfahrtAb: searchParams.abfahrtAb,
     ankunftBis: searchParams.ankunftBis,
+    umstiegszeit: searchParams.umstiegszeit,
   })
 
   useEffect(() => {
-    if (searchDisabled || !searchParams.start || !searchParams.ziel) return
+    if (searchDisabled || !userRequestedSearch || !searchParams.start || !searchParams.ziel) return
 
     const controller = new AbortController()
     abortRef.current = controller
@@ -424,7 +444,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
       cancellationSentRef.current = false
 
       try {
-        const response = await fetch("/api/search-prices", {
+        const response = await priceSearchFetch("/api/search-prices", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           signal: controller.signal,
@@ -508,7 +528,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
       notifyActiveSearchCancellation("search_effect_cleanup")
       controller.abort()
     }
-  }, [currentSearchKey, notifyActiveSearchCancellation, searchParams, searchDisabled])
+  }, [currentSearchKey, notifyActiveSearchCancellation, priceSearchFetch, searchDisabled, userRequestedSearch, submission.attempt])
 
   const handleOriginChange = (value: string) => {
     setOrigin(value)
@@ -555,7 +575,8 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
     if (normalizedArrivalBefore) params.set("ankunftBis", normalizedArrivalBefore)
     if (maxChanges.trim()) params.set("maximaleUmstiege", maxChanges.trim())
     if (searchDisabled) return
-    window.location.assign(`/klassik?${params.toString()}`)
+    submission.submit(params.toString())
+    router.push(`/klassik?${params.toString()}`, { scroll: false })
   }
 
   const routeLabel =
@@ -726,6 +747,8 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
               <span>{routeLabel}</span>
             </div>
             <div id="classicStatus" className="subtitle">
+              <PriceSearchVerificationStatus variant="classic" />
+              <span hidden={isVerifying}>
               {isStreaming || loading ? (
                 <span>
                   Suche läuft: {completedDays} von {expectedDates.length} Tagen.
@@ -739,6 +762,7 @@ export function ClassicFinder({ searchParams, searchDisabled = false }: ClassicF
                   </a>
                 </span>
               )}
+              </span>
             </div>
 
             <table id="calendar">

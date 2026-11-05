@@ -264,6 +264,16 @@ Der Kalenderfuß reserviert im Flexpreisvergleich dieselbe Textfläche für den 
 
 **Die Zustandsklarheit-Regel.** Interaktive Kontrolle, fachlicher Status und reine Information müssen durch Form, Farbe und Verhalten eindeutig unterscheidbar bleiben.
 
+## Sicherheitsprüfung
+
+Der Kopf des einfachen Preiskalenders steht bereits während der Sicherheitsprüfung mit den beim Suchstart gewählten Stationsnamen. Solange keine API-Metadaten vorliegen, stammen diese aus dem Formularzustand. Die Preisbeschriftung und ein gleich hoch angelegter Platzhalter reservieren den Angebotsbereich, bevor der erste Preis eintrifft. Geplante Reisetage werden bis zum ersten Ergebnis als geplant bezeichnet. Der Übergang zur Preisabfrage fügt keinen zusätzlichen Kalenderkopf ein.
+
+Bahnhofssuchen prüfen bei Bedarf automatisch im Hintergrund und reservieren keinen zusätzlichen Platz im Formular. Ihr Widget bleibt mit `interaction-only` eingebunden und wechselt nur bei erforderlicher Bestätigung in denselben modalen Dialog. Die Erklärung nennt in diesem Fall ausdrücklich die Bahnhofssuche. Technische Fehler werden über die vorhandenen Fehlertexte am Bahnhofsfeld angezeigt. Der Stations-Dialog ist unabhängig von der Preis-Fortschrittsanzeige und verändert deren Zustand und Containermaße nicht.
+
+Während der automatischen Prüfung füllt ein kompakter Ablauf „Sicherheit prüfen → Preise suchen“ den reservierten Inhaltsbereich. Die Containermaße, Abstände und Schriftgrößen entsprechen der vorhandenen Fortschrittsanzeige: 14 px für die Überschrift, 12 px für Ablauf und Hinweise. Die Hervorhebung erfolgt ausschließlich durch Schildsymbol, Fahrplanblau und halbfette Beschriftung des aktuellen Schritts; zusätzliche Hintergrundflächen und Innenabstände entfallen. Lupe und graue Beschriftung zeigen den anschließenden Suchschritt. Eine dünne Verbindungslinie ordnet den Ablauf, ohne einen messbaren Fortschritt vorzutäuschen. „Bitte warte kurz“ ist innerhalb des kompakten Hinweistexts dunkler betont. Wird eine Interaktion angefordert, wechseln Schritt und Hinweis zu „Bestätigung nötig“ und einer konkreten Aufforderung für das geöffnete Fenster. Der Cloudflare-Datenschutzhinweis bleibt darunter sichtbar.
+
+Die automatische Turnstile-Prüfung ist die erste Phase der gemeinsamen Fortschrittsanzeige. Überschrift und Kurztext benennen die Prüfung; die vorhandene Abbruchaktion und das Scrollziel bleiben erhalten. Prozentwerte, Restzeit und Queue-Hinweise erscheinen erst bei der eigentlichen Suche. Der Inhaltsbereich reserviert dieselbe Mindesthöhe für beide Phasen. Cloudflares Widget bleibt während der Prüfung eingebunden. Nur wenn es eine Nutzereingabe anfordert, wird dasselbe Widget in einem zentrierten, responsiven Dialog mit kurzer Erklärung und Schließen-Aktion angezeigt. Die flexible Widget-Breite nutzt die verfügbare Fläche. Nach Abschluss zeigt dasselbe Fortschrittsmodul den Suchfortschritt, ohne erneut zu scrollen. Fehler werden im bestehenden Ergebnisbereich erklärt. Im Klassikmodus verwendet die Prüfung die vorhandene Statuszeile mit fester Mindesthöhe; ein sichtbares Widget liegt außerhalb des Dokumentflusses und fügt keine Zeile hinzu.
+
 ## Do's and Don'ts
 
 ### Do:

@@ -3,12 +3,18 @@
 import { getAppVersion, getCurrentYear } from "@/lib/shared/app-info"
 import { ChevronDown, Github } from "lucide-react"
 import { useEffect, useState } from "react"
+import { useTurnstileEnabled } from "@/components/search/price-search-provider"
 
 interface FooterProps {
   show?: boolean
 }
 
 export function Footer({ show = false }: FooterProps) {
+  const turnstileEnabled = useTurnstileEnabled()
+  const privacyNotice = <>
+    Die Anwendung verarbeitet Suchanfragen und kann Ergebnisse zeitweise zwischenspeichern.
+    {turnstileEnabled && <> Zum Schutz vor automatisierten Abfragen nutzen wir Cloudflare Turnstile. Dabei werden technische Daten wie deine IP-Adresse an Cloudflare übermittelt. <a href="https://www.cloudflare.com/turnstile-privacy-policy/" className="underline underline-offset-2">Datenschutzhinweise</a>.</>}
+  </>
   const currentYear = getCurrentYear()
   const appVersion = getAppVersion()
   const [showFooter, setShowFooter] = useState(show)
@@ -48,7 +54,7 @@ export function Footer({ show = false }: FooterProps) {
           </p>
           <p>
             <span className="font-medium text-gray-600">Datenschutz:</span>{" "}
-            Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
+            {privacyNotice}
           </p>
           <p>
             <span className="font-medium text-gray-600">Kontakt:</span>{" "}
@@ -77,7 +83,7 @@ export function Footer({ show = false }: FooterProps) {
         </p>
         <p>
           <span className="mb-1 block font-medium text-gray-600">Datenschutz</span>
-          Die Anwendung visualisiert Abfrageergebnisse und speichert keine personenbezogenen Daten.
+          {privacyNotice}
         </p>
         <p>
           <span className="mb-1 block font-medium text-gray-600">Kontakt</span>

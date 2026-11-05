@@ -21,6 +21,7 @@ import { ICE_STATIONS, getDefaultStations } from "@/lib/stations/ice-stations"
 import { logError } from "@/lib/shared/logger"
 import { addDaysToDateKey } from "@/lib/shared/berlin-date"
 import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
+import { useStationSearchFetch, useStationSelection } from "@/components/search/price-search-provider"
 import {
   ConnectionOptionsModule,
   DateTimeControlStyle,
@@ -36,7 +37,6 @@ interface UrlauberfinderSearchFormProps {
   onSearch: (params: UrlauberfinderSearchParams) => void
   isSearching: boolean
   initialParams?: Partial<UrlauberfinderSearchParams>
-  autoStartFromInitialParams?: boolean
 }
 
 export interface UrlauberfinderSearchParams {
@@ -140,8 +140,10 @@ export function UrlauberfinderSearchForm({
   onSearch,
   isSearching,
   initialParams,
-  autoStartFromInitialParams = false,
 }: UrlauberfinderSearchFormProps) {
+  const stationSearchFetch = useStationSearchFetch()
+  const recordStationClick = useStationSelection()
+  const stationAttempt = useRef(0)
   const earliestSearchDate = useBerlinEarliestSearchDate()
   const defaultOutwardDate = addDaysToDateKey(earliestSearchDate, 6)
   const hasInitialParams = !!initialParams && Object.keys(initialParams).length > 0
@@ -227,7 +229,6 @@ export function UrlauberfinderSearchForm({
   const [umstiegszeit, setUmstiegszeit] = useState(initialParams?.umstiegszeit || "normal")
   const [showLargeRequestDialog, setShowLargeRequestDialog] = useState(false)
   const [pendingSearchParams, setPendingSearchParams] = useState<UrlauberfinderSearchParams | null>(null)
-  const initialSearchStartedRef = useRef(false)
 
   const togglePreset = useCallback((presetNames: string[]) => {
     setSelectedDestinations(prev => {
@@ -264,9 +265,12 @@ export function UrlauberfinderSearchForm({
   const homeDebounceRef = useRef<NodeJS.Timeout | undefined>(undefined)
 
   const fetchHomeSuggestions = useCallback(async (query: string, retryCount = 0) => {
+    const attempt = ++stationAttempt.current
     const maxRetries = 3
 
     if (query.trim().length < 2) {
+      void stationSearchFetch(query)
+      setLoadingHome(false)
       setHomeSuggestions([])
       setShowHomeSuggestions(false)
       setHomeError(null)
@@ -278,7 +282,7 @@ export function UrlauberfinderSearchForm({
       setShowHomeSuggestions(true)
       setHomeError(null)
 
-      const response = await fetch(`/api/station-search?q=${encodeURIComponent(query)}`)
+      const response = await stationSearchFetch(query)
 
       if (response.status === 429) {
         const data = await response.json()
@@ -288,6 +292,7 @@ export function UrlauberfinderSearchForm({
           const errorMsg = `Zu viele Anfragen, versuche erneut in ${Math.ceil(retryAfter / 1000)}s...`
           setHomeError(errorMsg)
           await new Promise(resolve => setTimeout(resolve, retryAfter))
+          if (stationAttempt.current !== attempt) return
           return fetchHomeSuggestions(query, retryCount + 1)
         } else {
           throw new Error("Rate limit exceeded. Bitte versuche es in einigen Sekunden erneut.")
@@ -299,19 +304,22 @@ export function UrlauberfinderSearchForm({
       }
 
       const data = await response.json()
+      if (stationAttempt.current !== attempt) return
       if (data.results) {
         setHomeSuggestions(data.results)
         setActiveHomeSuggestionIndex(-1)
         setShowHomeSuggestions(true)
       }
     } catch (error) {
+      if (stationAttempt.current !== attempt) return
+      if (error instanceof Error && error.name === "AbortError") return
       logError(LOG_SCOPE, "Could not fetch home station suggestions", error, { query })
       const errorMsg = error instanceof Error ? error.message : "Fehler beim Laden der Bahnhöfe"
       setHomeError(errorMsg)
     } finally {
-      setLoadingHome(false)
+      if (stationAttempt.current === attempt) setLoadingHome(false)
     }
-  }, [])
+  }, [stationSearchFetch])
 
   const handleHomeInput = useCallback(
     (value: string) => {
@@ -338,13 +346,8 @@ export function UrlauberfinderSearchForm({
       return
     }
 
-    void fetch("/api/station-search", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ q: trimmedQuery, station: suggestion }),
-      keepalive: true,
-    }).catch(() => {})
-  }, [])
+    void recordStationClick(trimmedQuery, suggestion).catch(() => {})
+  }, [recordStationClick])
 
   const selectHomeSuggestion = useCallback((suggestion: StationSuggestion) => {
     recordStationSelection(homeStation, suggestion)
@@ -463,58 +466,7 @@ export function UrlauberfinderSearchForm({
       setTimeFiltersOpen(true)
     }
 
-    const hydratedHomeStation = initialParams.homeStationLabel || initialParams.homeStation || ""
-    if (
-      !autoStartFromInitialParams ||
-      initialSearchStartedRef.current ||
-      (!hydratedHomeStation.trim() && !initialParams.homeStationExtId) ||
-      hydratedDestinations.length === 0
-    ) {
-      return
-    }
-
-    initialSearchStartedRef.current = true
-    const initialSearchParams: UrlauberfinderSearchParams = {
-      homeStation: initialParams.homeStationExtId || hydratedHomeStation.trim(),
-      homeStationLabel: hydratedHomeStation.trim(),
-      homeStationExtId: initialParams.homeStationExtId,
-      destinations: hydratedDestinations,
-      outwardDate: hydratedOutwardDate,
-      ...(hydratedReturnDate && { returnDate: hydratedReturnDate }),
-      alter: initialParams.alter || "ERWACHSENER",
-      ermaessigungArt: normalizedDiscount.art,
-      ermaessigungKlasse: normalizedDiscount.klasse,
-      klasse: initialParams.klasse || "KLASSE_2",
-      schnelleVerbindungen: initialParams.schnelleVerbindungen ?? true,
-      maximaleUmstiege:
-        mappedUmstiegsOption === "alle"
-          ? undefined
-          : mappedUmstiegsOption === "direkt"
-            ? "0"
-            : mappedUmstiegsOption,
-      outwardAbfahrtAb: initialParams.outwardAbfahrtAb,
-      outwardAbfahrtBis: initialParams.outwardAbfahrtBis,
-      outwardAnkunftAb: initialParams.outwardAnkunftAb,
-      outwardAnkunftBis: initialParams.outwardAnkunftBis,
-      ...(hydratedReturnDate && {
-        returnAbfahrtAb: initialParams.returnAbfahrtAb,
-        returnAbfahrtBis: initialParams.returnAbfahrtBis,
-        returnAnkunftAb: initialParams.returnAnkunftAb,
-        returnAnkunftBis: initialParams.returnAnkunftBis,
-      }),
-      umstiegszeit: initialParams.umstiegszeit && initialParams.umstiegszeit !== "normal"
-        ? initialParams.umstiegszeit
-        : undefined,
-    }
-
-    if (hydratedDestinations.length > 25) {
-      setPendingSearchParams(initialSearchParams)
-      setShowLargeRequestDialog(true)
-      return
-    }
-
-    onSearch(initialSearchParams)
-  }, [autoStartFromInitialParams, initialParams])
+  }, [initialParams])
 
   useEffect(() => {
     if (outwardDate < earliestSearchDate) {

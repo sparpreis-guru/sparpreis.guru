@@ -1,8 +1,10 @@
-import { isPriceSearchDisabled } from "@/lib/shared/feature-flags"
-import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
 import type { Metadata } from "next"
 import { redirect } from "next/navigation"
 import { ClassicFinder } from "@/components/bestpreissuche/classic-finder"
+import { isPriceSearchDisabled } from "@/lib/shared/feature-flags"
+import { PriceSearchUnavailablePage } from "@/components/search/price-search-unavailable-page"
+import { PriceSearchSecurity } from "@/components/search/price-search-security"
+import { canonicalSearchQuery } from "@/lib/search/search-submission"
 import "./klassik.css"
 
 export const dynamic = "force-dynamic"
@@ -101,9 +103,9 @@ export default async function KlassikPage({
           color: #333;
         }
       `}</style>
-      <ClassicFinder searchParams={params} searchDisabled={priceSearchDisabled} />
+      <ClassicFinder key={canonicalSearchQuery(params)} searchParams={params} searchDisabled={priceSearchDisabled} />
     </>
   )
 
-  return priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page
+  return <PriceSearchSecurity>{priceSearchDisabled ? <PriceSearchUnavailablePage>{page}</PriceSearchUnavailablePage> : page}</PriceSearchSecurity>
 }

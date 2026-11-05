@@ -60,6 +60,11 @@ pnpm build:direct-connections
 | `NEXT_PUBLIC_BASE_URL` | – | Öffentliche URL der Installation |
 | `ENABLE_URLAUBSFINDER` | `true` | Blendet mit `false` den Urlaubsfinder aus und deaktiviert seine API |
 | `DISABLE_PRICE_SEARCH` | `false` | Sperrt mit `true`, `1` oder `yes` Bestpreissuche (einschließlich Klassikmodus und Flexpreisvergleich) sowie Urlaubsfinder mit einem Hinweis auf die Akamai-Blockierung und das GitHub-Repository zum Selbsthosten; Direktverbindungen bleiben nutzbar |
+| `TURNSTILE_ENABLED` | `false` | Schützt mit `true`, `1` oder `yes` neue Preissuchen und Bahnhofsvorschläge; Bahnhofssuchen erhalten nach einer Prüfung eine Freigabe für 30 Minuten und höchstens 100 Autocomplete-Anfragen, Kalender-Nachladeaktionen eine separate Freigabe |
+| `TURNSTILE_SITE_KEY` | – | Öffentlicher Site-Key eines Managed-Turnstile-Widgets; wird zur Laufzeit an die Suchseiten übergeben |
+| `TURNSTILE_SECRET_KEY` | – | Geheimer Schlüssel für die serverseitige Siteverify-Prüfung; bleibt ausschließlich auf dem Server |
+| `TURNSTILE_HOSTNAMES` | – | Erlaubte Widget-Hostnamen, durch Kommas getrennt, ohne Protokoll oder Port; bei aktiviertem Turnstile erforderlich |
+| `TURNSTILE_APPEARANCE` | `interaction-only` | Widget-Sichtbarkeit bei Preisabfragen: `interaction-only`, `always` oder `execute`; Bahnhofssuchen verwenden immer `interaction-only`. Erzwingt keine manuelle Checkbox |
 | `SHOW_FOOTER` | `false` | Zeigt mit `true`, `1` oder `yes` den Demo- und Kontakt-Footer |
 | `DATABASE_PATH` | `data/connection-cache.db` | Abweichender Pfad für Cache und Preisverlauf |
 | `CLEANUP_PAST_CONNECTIONS` | `true` | Entfernt regelmäßig abgelaufene Verbindungen aus dem Cache |
@@ -70,6 +75,16 @@ pnpm build:direct-connections
 `tagesbestpreis` und `recon` werden in getrennten Rate-Limitern verarbeitet. Die vorhandenen `RL_*`-Variablen konfigurieren den Tagesbestpreis-Limiter; für `recon` können dieselben Suffixe mit `RECON_RL_*` separat gesetzt werden, beispielsweise `RECON_RL_ROLLING_LIMIT_COUNT`. Ohne eigenen Wert übernimmt der recon-Limiter die entsprechende `RL_*`-Einstellung. Standardmäßig gelten für beide Budgets jeweils 30 Starts pro 60 Sekunden.
 
 Zur temporären Sperre `DISABLE_PRICE_SEARCH=true` in der Serverumgebung setzen und die Anwendung neu starten. Bei Docker genügt `-e DISABLE_PRICE_SEARCH=true`; das Image muss nicht neu gebaut werden. Ohne die Variable oder mit `false` sind Preisabfragen wieder freigegeben. `ENABLE_URLAUBSFINDER=false` blendet den Urlaubsfinder unabhängig davon weiterhin vollständig aus. Die gesperrten Preis-APIs antworten mit HTTP 503 und `code: "PRICE_SEARCH_DISABLED"`, bevor Suchanfragen verarbeitet werden.
+
+Turnstile ist optional und funktioniert sowohl hinter Cloudflare Tunnel / `cloudflared` als auch hinter anderen Proxys oder direkt. Konfiguration, Suchablauf und Testhinweise stehen unter [Turnstile-Schutz für Preisabfragen](docs/turnstile.md). Bei deaktiviertem Schutz wird kein Turnstile-Skript geladen. Die vorhandene Deployment-Sperre hat Vorrang.
+
+Suchfreigaben werden ausschließlich im Arbeitsspeicher der geöffneten Seite
+gehalten und als Header übertragen. Dafür werden keine neuen Cookies gesetzt
+und weder Local Storage noch Session Storage verwendet. Nach F5 oder einem
+vollständigen Neuladen ist beim nächsten geschützten Abruf eine neue Prüfung
+nötig; normales Tippen innerhalb einer gültigen Stationsfreigabe löst keine
+zusätzlichen Prüfungen aus. Die Datenschutzbewertung des Turnstile-Einsatzes
+bleibt davon unabhängig.
 
 ## Monitoring
 

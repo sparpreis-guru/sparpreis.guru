@@ -11,6 +11,8 @@ import { ArrowLeftRight, Search, MapPin, Calendar, AlertTriangle, Check, CheckCi
 import { handleStationSuggestionKeyDown } from "@/components/search/station-suggestion-navigation"
 import { logError } from "@/lib/shared/logger"
 import { useBerlinEarliestSearchDate } from "@/hooks/use-berlin-earliest-search-date"
+import { useSearchSubmission } from "@/components/search/search-submission-provider"
+import { useStationSearchFetch, useStationSelection } from "@/components/search/price-search-provider"
 import {
   ALL_SEARCH_WEEKDAYS,
   getEligibleDateKeys,
@@ -170,6 +172,10 @@ interface StationSuggestion {
 
 export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: TrainSearchFormProps) {
   const router = useRouter()
+  const submission = useSearchSubmission()
+  const stationSearchFetch = useStationSearchFetch()
+  const recordStationClick = useStationSelection()
+  const stationAttempts = useRef({ start: 0, ziel: 0 })
   const [isSearching, setIsSearching] = useState(false)
 
   useEffect(() => {
@@ -336,14 +342,18 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
 
   // Fetch station suggestions with retry logic
   const fetchStationSuggestions = useCallback(async (query: string, type: 'start' | 'ziel', retryCount = 0) => {
+    const attempt = ++stationAttempts.current[type]
     const maxRetries = 3
     
     if (query.trim().length < 2) {
+      void stationSearchFetch(query, type)
       if (type === 'start') {
+        setLoadingStart(false)
         setStartSuggestions([])
         setShowStartSuggestions(false)
         setStartError(null)
       } else {
+        setLoadingZiel(false)
         setZielSuggestions([])
         setShowZielSuggestions(false)
         setZielError(null)
@@ -360,7 +370,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
         setZielError(null)
       }
       
-      const response = await fetch(`/api/station-search?q=${encodeURIComponent(query)}`)
+      const response = await stationSearchFetch(query, type)
       
       // Handle rate limiting
       if (response.status === 429) {
@@ -378,6 +388,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           
           // Retry after delay
           await new Promise(resolve => setTimeout(resolve, retryAfter))
+          if (stationAttempts.current[type] !== attempt) return
           return fetchStationSuggestions(query, type, retryCount + 1)
         } else {
           throw new Error('Rate limit exceeded. Bitte versuche es in einigen Sekunden erneut.')
@@ -389,6 +400,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       }
       
       const data = await response.json()
+      if (stationAttempts.current[type] !== attempt) return
       
       if (data.results) {
         if (type === 'start') {
@@ -402,6 +414,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
         }
       }
     } catch (error) {
+      if (stationAttempts.current[type] !== attempt) return
+      if (error instanceof Error && error.name === "AbortError") return
       logError(LOG_SCOPE, "Could not fetch station suggestions", error, {
         query,
         field: type,
@@ -413,13 +427,12 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
         setZielError(errorMsg)
       }
     } finally {
-      if (type === 'start') {
-        setLoadingStart(false)
-      } else {
-        setLoadingZiel(false)
+      if (stationAttempts.current[type] === attempt) {
+        if (type === 'start') setLoadingStart(false)
+        else setLoadingZiel(false)
       }
     }
-  }, [])
+  }, [stationSearchFetch])
   
   // Handle input changes with debounce
   const handleStartInput = useCallback((value: string) => {
@@ -456,13 +469,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
       return
     }
 
-    void fetch('/api/station-search', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ q: trimmedQuery, station: suggestion }),
-      keepalive: true,
-    }).catch(() => {})
-  }, [])
+    void recordStationClick(trimmedQuery, suggestion).catch(() => {})
+  }, [recordStationClick])
   
   // Handle suggestion selection
   const selectStartSuggestion = useCallback((suggestion: StationSuggestion) => {
@@ -536,7 +544,8 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     const resolveStationId = async (id: string, type: 'start' | 'ziel') => {
       try {
         // Search for the station by ID - the API will return the station details
-        const response = await fetch(`/api/station-search?q=${encodeURIComponent(id)}`)
+        const response = await stationSearchFetch(id, type)
+        if (!response.ok) throw new Error("Die Bahnhofsnamen konnten nicht geladen werden. Bitte versuche es erneut.")
         const data = await response.json()
         
         if (data.results && data.results.length > 0) {
@@ -549,6 +558,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
           }
         }
       } catch (error) {
+        if (error instanceof Error && error.name === "AbortError") return
         logError(LOG_SCOPE, "Could not resolve station ID", error, {
           stationId: id,
           field: type,
@@ -556,8 +566,10 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
         // Fallback: show the ID if resolution fails
         if (type === 'start') {
           setStart(id)
+          setStartError(error instanceof Error ? error.message : "Bahnhofssuche fehlgeschlagen.")
         } else {
           setZiel(id)
+          setZielError(error instanceof Error ? error.message : "Bahnhofssuche fehlgeschlagen.")
         }
       }
     }
@@ -571,7 +583,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     if (zielId && !ziel.trim()) {
       resolveStationId(zielId, 'ziel')
     }
-  }, [startId, zielId, start, ziel])
+  }, [startId, zielId, start, ziel, stationSearchFetch])
   
   const parsedMinNights = Number(minNaechte)
   const parsedMaxNights = maxNaechte ? Number(maxNaechte) : undefined
@@ -677,6 +689,10 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
     normalizedCurrentParams.sort()
     normalizedNextParams.sort()
 
+    submission.submit(params.toString(), {
+      startStation: { name: start.trim() || startId, id: startId || start.trim() },
+      zielStation: { name: ziel.trim() || zielId, id: zielId || ziel.trim() },
+    })
     if (normalizedCurrentParams.toString() === normalizedNextParams.toString()) {
       window.dispatchEvent(new Event("bestpreissuche:restart"))
     } else {
@@ -686,6 +702,7 @@ export function TrainSearchForm({ searchParams, classicModeHref = "/klassik" }: 
   }
 
   const handleReset = () => {
+    submission.clear()
     setTimeFiltersResetKey(current => current + 1)
     const resetStart = defaultSearchStart
     setStart("")

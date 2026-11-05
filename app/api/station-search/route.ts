@@ -8,6 +8,7 @@ import { logDebug, logError, logWarn } from '@/lib/shared/logger'
 import { isTemporaryBahnNetworkError } from '@/app/api/search-prices/bahn-http'
 import { StationRateLimitError } from './rate-limit'
 import { searchStations, StationSearchUpstreamError } from './search-stations'
+import { consumeStationSearchGrant } from '@/lib/security/station-search-grants'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -19,10 +20,13 @@ export async function GET(request: NextRequest) {
   if (!query || query.trim().length < 2) {
     return NextResponse.json({ results: [] })
   }
+  if (query.length > 200) return NextResponse.json({ results: [], error: 'Suchbegriff zu lang.' }, { status: 400 })
+  const failure = consumeStationSearchGrant(request)
+  if (failure) return failure
 
   try {
     const result = await searchStations(query)
-    return NextResponse.json(result)
+    return NextResponse.json(result, { headers: { 'Cache-Control': 'no-store' } })
   } catch (error) {
     if (error instanceof StationRateLimitError) {
       const retryAfterMs = Math.max(100, error.retryAfterMs)
@@ -64,6 +68,8 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const failure = consumeStationSearchGrant(request, true)
+  if (failure) return failure
   try {
     const body = await request.json() as {
       q?: string

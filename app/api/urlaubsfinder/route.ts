@@ -1,4 +1,3 @@
-import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { type NextRequest, NextResponse } from "next/server"
 import { getBestPrice, searchBahnhof } from '@/app/api/search-prices/bahn-api'
 import { globalRateLimiter } from '@/app/api/search-prices/rate-limiter'
@@ -8,6 +7,8 @@ import { isUrlaubsfinderEnabled } from '@/lib/shared/feature-flags'
 import { logDebug, logError, logInfo } from '@/lib/shared/logger'
 import { getEarliestSearchDateKey } from '@/lib/shared/berlin-date'
 import { getDaySearchFailure, type SearchFailure } from '@/lib/search/search-errors'
+import { getPriceSearchUnavailableResponse } from '@/lib/search/price-search-availability'
+import { verifyPriceSearchRequest } from '@/lib/security/turnstile'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -163,6 +164,9 @@ export async function POST(request: NextRequest) {
 
   const unavailable = getPriceSearchUnavailableResponse()
   if (unavailable) return unavailable
+
+  const verificationFailure = await verifyPriceSearchRequest(request, "urlaubsfinder")
+  if (verificationFailure) return verificationFailure
 
   try {
     const body: UrlauberfinderRequest = await request.json()

@@ -1,5 +1,5 @@
 export interface SearchFailure {
-  kind: "blocked" | "rate_limit" | "timeout" | "network" | "response" | "request"
+  kind: "blocked" | "rate_limit" | "timeout" | "network" | "response" | "request" | "verification"
   message: string
 }
 

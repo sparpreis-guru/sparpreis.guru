@@ -1,12 +1,13 @@
 "use client"
 
 import { useEffect, useId, useRef, useState, type ReactNode } from "react"
-import { ArrowUp, CheckCircle2, CircleX, Loader2, RotateCcw } from "lucide-react"
+import { ArrowUp, CheckCircle2, CircleX, Loader2, RotateCcw, ShieldCheck } from "lucide-react"
 import type { SearchQueueStatusData } from "@/hooks/use-search-queue-status"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { SearchCancelButton } from "./search-cancel-button"
 import { formatEta, SearchQueueStatus } from "./search-queue-status"
+import { PriceSearchVerificationStatus, usePriceSearchVerification } from "./price-search-provider"
 
 /** Auto-scroll only for a new search, not for an in-place comparison update. */
 export function scheduleSearchProgressScroll(
@@ -67,7 +68,7 @@ interface SearchProgressPanelProps {
 
 export function SearchProgressPanel({
   autoScrollOnStart = true,
-  isActive,
+  isActive: isSearching,
   completedItems,
   totalItems,
   queueStatus,
@@ -78,6 +79,8 @@ export function SearchProgressPanel({
   onRestart,
   detail,
 }: SearchProgressPanelProps) {
+  const { isVerifying, cancelVerification } = usePriceSearchVerification()
+  const isActive = isSearching || isVerifying
   const panelId = useId()
   const panelRef = useRef<HTMLElement>(null)
   const wasTimingRef = useRef(isActive)
@@ -170,7 +173,9 @@ export function SearchProgressPanel({
           )}
         >
           <div className="flex min-w-0 items-start gap-3">
-            {state === "active" ? (
+            {isVerifying ? (
+              <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-blue-600" aria-hidden="true" />
+            ) : state === "active" ? (
               <Loader2 className="mt-0.5 h-5 w-5 shrink-0 animate-spin text-blue-600" />
             ) : state === "cancelled" ? (
               <CircleX className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
@@ -179,14 +184,14 @@ export function SearchProgressPanel({
             )}
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-gray-950">
-                {state === "active"
+                {isVerifying ? "Sicherheitsprüfung läuft …" : state === "active"
                   ? "Suche läuft"
                   : state === "cancelled"
                     ? "Suche abgebrochen"
                     : "Suche abgeschlossen"}
               </h2>
               <p className="mt-0.5 text-xs text-gray-600">
-                {state === "active"
+                {isVerifying ? "Die Preissuche startet nach der Prüfung." : state === "active"
                   ? "Die Ergebnisse werden fortlaufend ergänzt."
                   : state === "cancelled"
                     ? "Die angezeigten Ergebnisse sind unvollständig."
@@ -194,7 +199,7 @@ export function SearchProgressPanel({
               </p>
             </div>
           </div>
-          {isActive && onCancel && <SearchCancelButton onClick={onCancel} />}
+          {isActive && (onCancel || isVerifying) && <SearchCancelButton onClick={onCancel || cancelVerification} />}
           {state === "cancelled" && onRestart && (
             <Button
               type="button"
@@ -211,7 +216,9 @@ export function SearchProgressPanel({
           )}
         </div>
 
-        <div className="px-4 py-2.5">
+        <div className="min-h-[8.75rem] px-4 py-2.5 sm:min-h-[6.75rem]">
+          <PriceSearchVerificationStatus />
+          <div hidden={isVerifying}>
           <dl className="grid grid-cols-2 gap-x-5 gap-y-2 sm:grid-cols-4 sm:gap-y-0">
             <div className="min-w-0">
               <dt className="text-[11px] text-gray-500">Fortschritt</dt>
@@ -266,6 +273,7 @@ export function SearchProgressPanel({
             {isActive && <SearchQueueStatus status={queueStatus} inline />}
             {!isActive && detail && <span className="min-w-0 flex-1 truncate">{detail}</span>}
           </div>
+          </div>
         </div>
       </section>
 
@@ -279,7 +287,7 @@ export function SearchProgressPanel({
           )}
           onClick={scrollToPanel}
           aria-controls={panelId}
-          aria-label={state === "active" ? `Suche läuft, ${progress} Prozent abgeschlossen. Suchstatus anzeigen` : "Suche abgebrochen. Suchstatus anzeigen"}
+          aria-label={isVerifying ? "Sicherheitsprüfung läuft. Suchstatus anzeigen" : state === "active" ? `Suche läuft, ${progress} Prozent abgeschlossen. Suchstatus anzeigen` : "Suche abgebrochen. Suchstatus anzeigen"}
           title="Suchstatus anzeigen"
         >
           {state === "active" ? (
@@ -289,10 +297,10 @@ export function SearchProgressPanel({
           )}
           {state === "active" ? (
             <>
-              <span>Suche läuft</span>
-              <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ring-white/20">
+              <span>{isVerifying ? "Sicherheitsprüfung" : "Suche läuft"}</span>
+              {!isVerifying && <span className="shrink-0 rounded-full bg-white/15 px-2 py-0.5 text-xs font-bold tabular-nums ring-1 ring-white/20">
                 {progress}%
-              </span>
+              </span>}
             </>
           ) : (
             <span>

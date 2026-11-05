@@ -10,6 +10,10 @@ import {
 } from "./travel-combinations"
 import { IncompleteSearchNotice } from "@/components/search/incomplete-search-notice"
 import { SearchErrorNotice } from "@/components/search/search-error-notice"
+import { usePriceSearchFetch } from "@/components/search/price-search-provider"
+import { PriceSearchVerificationError } from "@/lib/security/turnstile-shared"
+import { useSearchSubmission } from "@/components/search/search-submission-provider"
+import { matchesSubmittedSearch } from "@/lib/search/search-submission"
 import { describeSearchFailure, getSearchFailures, type SearchFailure } from "@/lib/search/search-errors"
 import { logError, logInfo, logWarn } from "@/lib/shared/logger"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
@@ -150,6 +154,13 @@ function parseWeekdaysParam(value?: string, fallback = ALL_WEEKDAYS) {
 }
 
 export function TrainResults({ searchParams }: TrainResultsProps) {
+  const submission = useSearchSubmission()
+  return matchesSubmittedSearch(submission.query, searchParams) ? <SubmittedTrainResults searchParams={searchParams} /> : null
+}
+
+function SubmittedTrainResults({ searchParams }: TrainResultsProps) {
+  const submission = useSearchSubmission()
+  const priceSearchFetch = usePriceSearchFetch()
   const [flexBasisOverride, setFlexBasisOverride] = useState<{ searchKey: string; id: string } | null>(null)
   const flexBasisChangeRef = useRef<{ searchKey: string; id: string } | null>(null)
   const extraDaysToRefreshRef = useRef<{ searchKey: string; dates: string[] } | null>(null)
@@ -249,8 +260,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
 
   const validPriceResults = Object.entries(priceResults).filter(([key]) => key !== "_meta") as [string, PriceData][]
   const _meta = (priceResults as any)._meta as MetaData | undefined
-  const startStation = _meta?.startStation
-  const zielStation = _meta?.zielStation
+  // The route header must already exist while Turnstile runs, before the API sends metadata.
+  const startStation = _meta?.startStation || submission.stations?.startStation || { name: searchParams.start || "", id: searchParams.start || "" }
+  const zielStation = _meta?.zielStation || submission.stations?.zielStation || { name: searchParams.ziel || "", id: searchParams.ziel || "" }
 
   const supersedeActiveRequests = useCallback((reason: string) => {
     const flexRequest = flexLookupRef.current
@@ -591,7 +603,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
       abortControllerRef.current = controller
 
       try {
-        const response = await fetch("/api/search-prices", {
+        const response = await priceSearchFetch("/api/search-prices", {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -746,7 +758,9 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
         if (err instanceof Error && err.name === 'AbortError') {
           logInfo(LOG_SCOPE, "Bestpreissuche request aborted by user", { sessionId: newSessionId })
         } else {
-          setSearchError(describeSearchFailure(err instanceof Error ? err.message : "Bestpreissuche fehlgeschlagen"))
+          setSearchError(err instanceof PriceSearchVerificationError
+            ? { kind: "verification", message: err.message }
+            : describeSearchFailure(err instanceof Error ? err.message : "Bestpreissuche fehlgeschlagen"))
           logError(LOG_SCOPE, "Bestpreissuche client request failed", err, { sessionId: newSessionId })
         }
       } finally {
@@ -763,6 +777,7 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     searchPrices()
   }, [
     currentSearchKey,
+    priceSearchFetch,
     searchAttempt,
     searchParams.start,
     searchParams.ziel,
@@ -819,12 +834,12 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     }
 
     try {
-      const response = await fetch("/api/search-prices", {
+      const response = await priceSearchFetch("/api/search-prices", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         signal: controller.signal,
         body: JSON.stringify(buildSearchRequestBody(requestSessionId, requestedDates, overrides)),
-      })
+      }, true)
       ensureCurrentRequest()
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({ error: "Unbekannter Fehler" }))
@@ -1034,8 +1049,8 @@ export function TrainResults({ searchParams }: TrainResultsProps) {
     setFlexLookupDate(date)
     setFlexLookupError(null)
     try {
-      const response = await fetch("/api/flexpreis/day", { method: "POST", headers: { "Content-Type": "application/json" },
-        signal: controller.signal, body: JSON.stringify({ ...buildSearchRequestBody(requestSessionId), date, flexBasisId: basisId }) })
+      const response = await priceSearchFetch("/api/flexpreis/day", { method: "POST", headers: { "Content-Type": "application/json" },
+        signal: controller.signal, body: JSON.stringify({ ...buildSearchRequestBody(requestSessionId), date, flexBasisId: basisId }) }, true)
       const body = await response.json()
       if (!response.ok) throw new Error(body.error || "Die Flexpreis-Prüfung ist fehlgeschlagen.")
       if (controller.signal.aborted || runId !== searchRunIdRef.current || body.date !== date || body.flexpreis?.basisId !== basisId) return

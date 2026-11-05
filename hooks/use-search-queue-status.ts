@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useRef, useState } from "react"
+import { usePriceSearchVerification } from "@/components/search/price-search-provider"
 
 export interface SearchQueueStatusData {
   estimatedTimeRemaining: number
@@ -39,6 +40,7 @@ export function useSearchQueueStatus({
   remainingRateLimitedRequests,
   searchType,
 }: UseSearchQueueStatusOptions): SearchQueueStatusData {
+  const { isVerifying } = usePriceSearchVerification()
   const normalizedRemainingRequests = Math.max(0, remainingRateLimitedRequests)
   const remainingRequestsRef = useRef(normalizedRemainingRequests)
   const hasServerEstimateRef = useRef(false)
@@ -53,7 +55,7 @@ export function useSearchQueueStatus({
   const [status, setStatus] = useState<SearchQueueStatusData>(fallbackStatus)
 
   useEffect(() => {
-    if (!isActive) return
+    if (!isActive || isVerifying) return
 
     if (!sessionId) {
       setStatus(fallbackStatus)
@@ -124,7 +126,7 @@ export function useSearchQueueStatus({
       cancelled = true
       if (pollTimer) clearTimeout(pollTimer)
     }
-  }, [isActive, searchType, sessionId])
+  }, [isActive, isVerifying, searchType, sessionId])
 
   return sessionId ? status : fallbackStatus
 }

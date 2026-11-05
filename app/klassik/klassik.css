@@ -17,7 +17,7 @@
 }
 
 .classicGuru input,
-.classicGuru button,
+.classicGuru button:not([data-price-search-verification] *),
 .classicGuru select {
   appearance: none;
   -moz-appearance: none;
@@ -26,7 +26,8 @@
   font-family: Helvetica, Arial, sans-serif;
 }
 
-.classicGuru button {
+/* The shared security status and dialog retain their accessible modern controls. */
+.classicGuru button:not([data-price-search-verification] *) {
   background: none;
   border: 0;
   padding: 0;
@@ -79,6 +80,12 @@
 
 .classicGuru #route {
   font-weight: bold;
+}
+
+.classicGuru #classicStatus {
+  position: relative;
+  min-height: 24px;
+  width: 100%;
 }
 
 .classicGuru #change {

@@ -386,10 +386,12 @@ export function PriceCalendar({
                 </span>
                 <span className="min-w-0 truncate font-bold">{zielStation.name}</span>
               </h2>
-              <p className="mt-1 text-xs text-blue-700">{resultDates.length} Reisetage ausgewertet</p>
+              <p className="mt-1 text-xs text-blue-700">{isStreaming && resultDates.length === 0
+                ? `${totalDays} Reisetage geplant`
+                : `${resultDates.length} Reisetage ausgewertet`}</p>
             </div>
             <div
-                className={`w-max shrink-0 self-start rounded-lg border px-2 py-1.5 sm:self-center sm:px-4 sm:py-2 sm:text-right ${
+                className={`w-max min-w-[8.5rem] shrink-0 self-start rounded-lg border px-2 py-1.5 sm:min-w-[10rem] sm:self-center sm:px-4 sm:py-2 sm:text-right ${
                 minPrice > 0
                   ? "border-green-200 bg-green-50 shadow-sm"
                   : allFlexPricesUnavailable
@@ -417,10 +419,12 @@ export function PriceCalendar({
               ) : (
                 <>
                   <span className="sr-only">Günstigster Preis wird ermittelt</span>
-                  <div className="h-3 w-20 rounded bg-blue-100 sm:ml-auto sm:w-24" aria-hidden="true" />
-                  <div className="mt-2 flex items-center gap-1 sm:justify-end" aria-hidden="true">
-                    <div className="h-3 w-4 rounded bg-blue-100" />
-                    <div className="h-6 w-20 rounded bg-blue-100 sm:h-7" />
+                  <div className="whitespace-nowrap text-[10px] font-medium leading-3 text-blue-700 sm:text-xs sm:leading-4">
+                    {priceView === "flexpreis" ? "Niedrigster Vergleichspreis" : "Günstigster Bestpreis"}
+                  </div>
+                  <div className="mt-0.5 flex items-center gap-1 sm:justify-end" aria-hidden="true">
+                    {priceView !== "flexpreis" && <span className="text-xs font-semibold text-blue-700 sm:text-sm">ab</span>}
+                    <div className="h-7 w-20 rounded bg-blue-100 sm:h-8" />
                   </div>
                 </>
               )}

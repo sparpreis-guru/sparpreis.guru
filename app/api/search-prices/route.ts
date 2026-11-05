@@ -1,4 +1,3 @@
-import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { type NextRequest, NextResponse } from "next/server"
 import { globalRateLimiter, reconRateLimiter } from './rate-limiter'
 import { searchBahnhof, getBestPrice } from './bahn-api'
@@ -15,6 +14,9 @@ import {
 } from '@/lib/search/search-workload'
 import { chooseFlexpreisComparison, comparisonSource, type FlexpreisSource, type FlexpreisDayData } from '@/lib/search/flexpreis-comparison'
 import { cachedFlexpreisQuote, resolveFlexpreisDay, supplementFlexpreisSources, type FlexpreisRequestConfig } from './flexpreis'
+import { getPriceSearchUnavailableResponse } from '@/lib/search/price-search-availability'
+import { verifyPriceSearchRequest } from '@/lib/security/turnstile'
+import { attachSearchGrant, checkSearchGrantScope, consumeSearchGrant } from '@/lib/security/search-grants'
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -250,11 +252,16 @@ export async function POST(request: NextRequest) {
   const unavailable = getPriceSearchUnavailableResponse()
   if (unavailable) return unavailable
 
+  const verificationFailure = await verifyPriceSearchRequest(request, "bestpreissuche", true)
+  if (verificationFailure) return verificationFailure
+
   // Track search start time for metrics
   const searchStartTime = Date.now()
   
   try {
     const body = await request.json()
+    const scopeFailure = checkSearchGrantScope(request, body)
+    if (scopeFailure) return scopeFailure
     const {
       sessionId: providedSessionId,
       start,
@@ -357,6 +364,9 @@ export async function POST(request: NextRequest) {
     if (calculatedDates.length === 0 && calculatedReturnDates.length === 0) {
       return NextResponse.json({ error: "Keine gültigen Reisetage für diese Anfrage." }, { status: 400 })
     }
+
+    const grantFailure = consumeSearchGrant(request, body, { outward: calculatedDates, returns: calculatedReturnDates })
+    if (grantFailure) return grantFailure
 
     // Count the search immediately; cache split is known after station resolution.
     metricsCollector.recordUserSearch(
@@ -1193,12 +1203,12 @@ export async function POST(request: NextRequest) {
       }
     })
 
-    return new Response(stream, {
+    return attachSearchGrant(new Response(stream, {
       headers: {
         'Content-Type': 'text/event-stream',
         'Transfer-Encoding': 'chunked',
       },
-    })
+    }), request, body)
   } catch (error) {
     metricsCollector.recordUserSearchError()
     logError(LOG_SCOPE, "Bestpreissuche API request failed", error)

@@ -1,10 +1,12 @@
-import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
 import { NextRequest, NextResponse } from "next/server"
 import { getBestPrice, searchBahnhof } from "@/app/api/search-prices/bahn-api"
 import { resolveFlexpreisDay, supplementFlexpreisSources, type FlexpreisRequestConfig } from "@/app/api/search-prices/flexpreis"
 import { cancelBestpreisSearchSession, globalRateLimiter } from "@/app/api/search-prices/rate-limiter"
 import { addDaysToDateKey, getEarliestSearchDateKey } from "@/lib/shared/berlin-date"
 import { comparisonSource } from "@/lib/search/flexpreis-comparison"
+import { getPriceSearchUnavailableResponse } from "@/lib/search/price-search-availability"
+import { verifyPriceSearchRequest } from "@/lib/security/turnstile"
+import { attachSearchGrant, consumeSearchGrant } from "@/lib/security/search-grants"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -12,6 +14,9 @@ export const dynamic = "force-dynamic"
 export async function POST(request: NextRequest) {
   const unavailable = getPriceSearchUnavailableResponse()
   if (unavailable) return unavailable
+
+  const verificationFailure = await verifyPriceSearchRequest(request, "flexpreis", true)
+  if (verificationFailure) return verificationFailure
 
   let sessionId: string | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
@@ -47,6 +52,8 @@ export async function POST(request: NextRequest) {
       (!/^\d{1,3}$/.test(String(body.umstiegszeit)) || Number(body.umstiegszeit) > 120)) {
       return NextResponse.json({ error: "Ungültige Umstiegszeit." }, { status: 400 })
     }
+    const grantFailure = consumeSearchGrant(request, body, { outward: [date], returns: [] }, true)
+    if (grantFailure) return grantFailure
     const [startStation, zielStation] = await Promise.all([searchBahnhof(body.start), searchBahnhof(body.ziel)])
     if (!startStation || !zielStation) return NextResponse.json({ error: "Bahnhof nicht gefunden." }, { status: 404 })
     const requestSessionId: string = typeof body.sessionId === "string" && body.sessionId.length > 0 && body.sessionId.length <= 128 ? body.sessionId : crypto.randomUUID()
@@ -73,7 +80,7 @@ export async function POST(request: NextRequest) {
     }
     const flexpreis = await resolveFlexpreisDay(sources, config, body.flexBasisId, true)
     if (supplementFailed) flexpreis.alternativesStatus = "partial"
-    return NextResponse.json({ date, flexpreis })
+    return attachSearchGrant(NextResponse.json({ date, flexpreis }), request, body)
   } catch {
     return NextResponse.json({ error: "Die Flexpreise konnten nicht geprüft werden. Versuche es erneut." }, { status: 503 })
   } finally {
